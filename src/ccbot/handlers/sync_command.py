@@ -2,6 +2,7 @@
 
 Audits all state maps against live tmux windows and reports issues.
 A "Fix" button runs cleanup operations and re-audits in place.
+Enforcement: closes ghost topics and kills orphaned tmux windows.
 
 Key functions:
   - sync_command(): /sync command handler
@@ -9,23 +10,30 @@ Key functions:
   - handle_sync_dismiss(): dismiss button callback — remove keyboard
 """
 
-import structlog
+import re
 
+import structlog
 from telegram import (
+    Bot,
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Update,
 )
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from ..config import config
-from ..session import AuditResult, session_manager
+from ..session import AuditIssue, AuditResult, session_manager
 from ..tmux_manager import tmux_manager
 from .callback_data import CB_SYNC_DISMISS, CB_SYNC_FIX
+from .cleanup import clear_topic_state
 from .message_sender import safe_edit, safe_reply
 
 logger = structlog.get_logger()
+
+_GHOST_RE = re.compile(r"user:(\d+) thread:(\d+) window:(@\d+)")
+_WINDOW_RE = re.compile(r"(@\d+)")
 
 _CATEGORY_LABELS: dict[str, str] = {
     "ghost_binding": "ghost binding (dead window)",
@@ -34,6 +42,7 @@ _CATEGORY_LABELS: dict[str, str] = {
     "stale_window_state": "stale window state",
     "stale_offset": "stale offset entry",
     "display_name_drift": "display name drift",
+    "orphaned_window": "orphaned tmux window (no topic)",
 }
 
 
@@ -109,6 +118,64 @@ def _format_report(
     return text, keyboard
 
 
+async def _close_ghost_topics(bot: Bot, issues: list[AuditIssue]) -> None:
+    """Close Telegram topics for ghost bindings (thread → dead window)."""
+    for issue in issues:
+        if issue.category != "ghost_binding":
+            continue
+        match = _GHOST_RE.search(issue.detail)
+        if not match:
+            continue
+        user_id = int(match.group(1))
+        thread_id = int(match.group(2))
+        window_id = match.group(3)
+        chat_id = session_manager.resolve_chat_id(user_id, thread_id)
+        topic_closed = False
+        if chat_id == user_id:
+            logger.warning(
+                "No group chat_id for ghost topic thread=%d, skipping close",
+                thread_id,
+            )
+        else:
+            try:
+                await bot.close_forum_topic(chat_id, thread_id)
+                topic_closed = True
+            except TelegramError:
+                logger.exception(
+                    "Failed to close ghost topic thread=%d window=%s",
+                    thread_id,
+                    window_id,
+                )
+        # Only unbind if topic was closed (or no group chat to close)
+        if topic_closed or chat_id == user_id:
+            try:
+                await clear_topic_state(
+                    user_id, thread_id, bot=bot, window_id=window_id
+                )
+                session_manager.unbind_thread(user_id, thread_id)
+            except OSError, TelegramError:
+                logger.exception(
+                    "Failed to clean up ghost binding thread=%d window=%s",
+                    thread_id,
+                    window_id,
+                )
+
+
+async def _kill_orphaned_windows(issues: list[AuditIssue]) -> None:
+    """Kill live tmux windows that are not bound to any topic."""
+    for issue in issues:
+        if issue.category != "orphaned_window":
+            continue
+        match = _WINDOW_RE.search(issue.detail)
+        if not match:
+            continue
+        window_id = match.group(1)
+        try:
+            await tmux_manager.kill_window(window_id)
+        except OSError:
+            logger.exception("Failed to kill orphaned window %s", window_id)
+
+
 async def sync_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /sync — audit state and show report."""
     user = update.effective_user
@@ -134,21 +201,24 @@ async def handle_sync_fix(query: CallbackQuery) -> None:
     # Audit before fixing to count fixable issues
     pre_audit = session_manager.audit_state(live_ids, live_pairs)
 
-    # Run all fix operations, catch errors to still report partial results
+    # Run state cleanup operations
     try:
         session_manager.sync_display_names(live_pairs)
         session_manager.prune_stale_state(live_ids)
         session_manager.prune_session_map(live_ids)
         session_manager.prune_stale_window_states(live_ids)
-        # Capture state_ids AFTER prune_stale_window_states so pruned states
-        # are excluded from the "known" set for offset pruning
         bound_ids: set[str] = {
-            wid for _uid, _tid, wid in session_manager.iter_thread_bindings()
+            wid for _, _, wid in session_manager.iter_thread_bindings()
         }
         state_ids = set(session_manager.window_states.keys())
         session_manager.prune_stale_offsets(live_ids | bound_ids | state_ids)
     except OSError:
         logger.exception("Error during sync fix operations")
+
+    # Enforcement: close ghost topics and kill orphaned windows
+    bot = query.get_bot()
+    await _close_ghost_topics(bot, pre_audit.issues)
+    await _kill_orphaned_windows(pre_audit.issues)
 
     # Re-audit and compute actual fixed count (handles partial failures)
     post_audit = await _run_audit()

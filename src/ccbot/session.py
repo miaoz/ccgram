@@ -537,7 +537,7 @@ class SessionManager:
 
         session_map_wids = self._get_session_map_window_ids()
 
-        # 1. Ghost bindings (thread → dead window) — NOT fixable
+        # 1. Ghost bindings (thread → dead window) — fixable (close topic)
         for uid, bindings in self.thread_bindings.items():
             for tid, wid in bindings.items():
                 if wid not in live_window_ids:
@@ -545,8 +545,8 @@ class SessionManager:
                     issues.append(
                         AuditIssue(
                             category="ghost_binding",
-                            detail=f"thread {tid} → {wid} ({display})",
-                            fixable=False,
+                            detail=f"user:{uid} thread:{tid} window:{wid} ({display})",
+                            fixable=True,
                         )
                     )
 
@@ -615,6 +615,19 @@ class SessionManager:
                     AuditIssue(
                         category="display_name_drift",
                         detail=f"{wid}: stored={stored_name!r} tmux={tmux_name!r}",
+                        fixable=True,
+                    )
+                )
+
+        # 7. Orphaned tmux windows (live, known to ccbot, but not bound to any topic)
+        known_wids = session_map_wids | set(self.window_states.keys())
+        for wid in live_window_ids:
+            if wid not in bound_window_ids and wid in known_wids:
+                name = dict(live_windows).get(wid, wid)
+                issues.append(
+                    AuditIssue(
+                        category="orphaned_window",
+                        detail=f"{wid} ({name})",
                         fixable=True,
                     )
                 )

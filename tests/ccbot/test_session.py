@@ -705,7 +705,10 @@ class TestAuditState:
         assert result.has_issues
         ghost = [i for i in result.issues if i.category == "ghost_binding"]
         assert len(ghost) == 1
-        assert not ghost[0].fixable
+        assert ghost[0].fixable
+        assert "user:100" in ghost[0].detail
+        assert "thread:1" in ghost[0].detail
+        assert "window:@7" in ghost[0].detail
 
     def test_orphaned_display_name(self, mgr: SessionManager) -> None:
         mgr.window_display_names["@9"] = "orphan"
@@ -727,6 +730,29 @@ class TestAuditState:
         stale = [i for i in result.issues if i.category == "stale_offset"]
         assert len(stale) == 1
         assert stale[0].fixable
+
+    def test_orphaned_window(self, mgr: SessionManager) -> None:
+        mgr.bind_thread(100, 1, "@1")
+        # @5 is known to ccbot (has window_state) but not bound to any topic
+        mgr.window_states["@5"] = WindowState(session_id="s1", cwd="/tmp")
+        result = mgr.audit_state(
+            live_window_ids={"@1", "@5"},
+            live_windows=[("@1", "proj"), ("@5", "orphan")],
+        )
+        orphans = [i for i in result.issues if i.category == "orphaned_window"]
+        assert len(orphans) == 1
+        assert "@5" in orphans[0].detail
+        assert orphans[0].fixable
+
+    def test_orphaned_window_ignores_unknown(self, mgr: SessionManager) -> None:
+        mgr.bind_thread(100, 1, "@1")
+        # @5 is live but unknown to ccbot — must NOT be flagged
+        result = mgr.audit_state(
+            live_window_ids={"@1", "@5"},
+            live_windows=[("@1", "proj"), ("@5", "manual-shell")],
+        )
+        orphans = [i for i in result.issues if i.category == "orphaned_window"]
+        assert len(orphans) == 0
 
     def test_display_name_drift(self, mgr: SessionManager) -> None:
         mgr.window_display_names["@1"] = "old-name"
