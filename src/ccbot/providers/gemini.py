@@ -168,7 +168,7 @@ class GeminiProvider(JsonlProvider):
             try:
                 with open(file_path, encoding="utf-8") as f:
                     data = json.load(f)
-            except json.JSONDecodeError, OSError:
+            except (json.JSONDecodeError, OSError):  # fmt: skip
                 return [], last_offset
 
             if not isinstance(data, dict):

@@ -191,7 +191,7 @@ def build_directory_browser(
                 and (config.show_hidden_dirs or not d.name.startswith("."))
             ]
         )
-    except PermissionError, OSError:
+    except (PermissionError, OSError):  # fmt: skip
         subdirs = []
 
     favorites, starred_set = get_favorites(user_id)

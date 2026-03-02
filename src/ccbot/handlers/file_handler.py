@@ -78,7 +78,7 @@ def _validate_dest_path(dest: Path, upload_path: Path) -> bool:
     try:
         dest.resolve().relative_to(upload_path.resolve())
         return True
-    except ValueError, OSError:
+    except (ValueError, OSError):  # fmt: skip
         return False
 
 

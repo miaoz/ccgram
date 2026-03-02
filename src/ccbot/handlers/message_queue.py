@@ -267,7 +267,7 @@ async def _message_queue_worker(bot: Bot, user_id: int) -> None:
                     "Flood control for user %s, pausing %ss", user_id, retry_secs
                 )
                 await asyncio.sleep(retry_secs)
-            except TelegramError, OSError:
+            except (TelegramError, OSError):  # fmt: skip
                 logger.exception(
                     "Error processing message task for user %s (thread %s)",
                     user_id,

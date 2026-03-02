@@ -22,7 +22,7 @@ def _read_json(path: Path) -> dict:
     """Read a JSON file, returning empty dict on any error."""
     try:
         return json.loads(path.read_text()) if path.exists() else {}
-    except json.JSONDecodeError, OSError:
+    except (json.JSONDecodeError, OSError):  # fmt: skip
         return {}
 
 
@@ -50,7 +50,7 @@ def _list_tmux_windows(session_name: str) -> list[dict[str, str]]:
             if len(parts) == _TMUX_FORMAT_PARTS:
                 windows.append({"id": parts[0], "name": parts[1]})
         return windows
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):  # fmt: skip
         return []
 
 

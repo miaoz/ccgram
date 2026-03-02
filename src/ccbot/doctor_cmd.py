@@ -47,7 +47,7 @@ def _check_tmux() -> tuple[str, str]:
         )
         version = result.stdout.strip()
         return _PASS, f"{version} found"
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):  # fmt: skip
         return _PASS, "tmux found (version unknown)"
 
 
@@ -76,7 +76,7 @@ def _check_tmux_session() -> tuple[str, str]:
         if result.returncode == 0:
             return _PASS, f'tmux session "{session_name}" exists'
         return _FAIL, f'tmux session "{session_name}" not found'
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):  # fmt: skip
         return _FAIL, "cannot connect to tmux server"
 
 
@@ -92,7 +92,7 @@ def _check_hooks() -> tuple[str, str, dict[str, bool]]:
         return _FAIL, f"hooks not installed ({settings_file} missing)", {}
     try:
         settings = json.loads(settings_file.read_text())
-    except json.JSONDecodeError, OSError:
+    except (json.JSONDecodeError, OSError):  # fmt: skip
         return _FAIL, "hooks not installed (settings.json unreadable)", {}
 
     event_status = get_installed_events(settings)
@@ -190,7 +190,7 @@ def _list_live_windows(session_name: str) -> dict[str, str]:
         )
         if result.returncode != 0:
             return {}
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):  # fmt: skip
         return {}
 
     windows: dict[str, str] = {}
@@ -211,7 +211,7 @@ def _get_known_window_ids(config_dir: Path, session_name: str) -> set[str]:
             state = json.loads(state_file.read_text())
             for bindings in state.get("thread_bindings", {}).values():
                 known.update(bindings.values())
-        except json.JSONDecodeError, OSError:
+        except (json.JSONDecodeError, OSError):  # fmt: skip
             pass
 
     session_map_file = config_dir / "session_map.json"
@@ -222,7 +222,7 @@ def _get_known_window_ids(config_dir: Path, session_name: str) -> set[str]:
             for key in session_map:
                 if key.startswith(prefix):
                     known.add(key[len(prefix) :])
-        except json.JSONDecodeError, OSError:
+        except (json.JSONDecodeError, OSError):  # fmt: skip
             pass
 
     return known
@@ -283,7 +283,7 @@ def _fix_orphans(orphans: list[tuple[str, str]], fix: bool) -> None:
                 timeout=5,
             )
             _print_check(_PASS, f"killed orphaned window {wid} ({wname})")
-        except OSError, subprocess.TimeoutExpired:
+        except (OSError, subprocess.TimeoutExpired):  # fmt: skip
             _print_check(_FAIL, f"failed to kill window {wid}")
 
 
