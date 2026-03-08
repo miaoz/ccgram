@@ -5,8 +5,6 @@ Codex slash commands like ``/status`` may not emit assistant transcript
 messages; this snapshot provides a reliable fallback.
 """
 
-from __future__ import annotations
-
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime

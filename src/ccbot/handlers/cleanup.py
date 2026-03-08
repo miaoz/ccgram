@@ -59,7 +59,6 @@ async def clear_topic_state(
     from .status_polling import (
         clear_autoclose_timer,
         clear_dead_notification,
-        clear_idle_clear_timer,
         clear_probe_failures,
         clear_screen_buffer,
         clear_seen_status,
@@ -69,7 +68,6 @@ async def clear_topic_state(
     clear_dead_notification(user_id, thread_id)
     clear_autoclose_timer(user_id, thread_id)
     clear_typing_state(user_id, thread_id)
-    clear_idle_clear_timer(user_id, thread_id)
     if window_id:
         from ..tmux_manager import clear_vim_state
 

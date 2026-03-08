@@ -151,12 +151,3 @@ class TestFormatExpandableQuote:
         assert result.startswith(EXPANDABLE_QUOTE_START)
         assert result.endswith(EXPANDABLE_QUOTE_END)
         assert text in result
-
-    def test_transcript_parser_delegates_to_shared_function(self) -> None:
-        from ccbot.providers.base import format_expandable_quote
-        from ccbot.transcript_parser import TranscriptParser
-
-        text = "some tool output\nwith multiple lines"
-        assert TranscriptParser._format_expandable_quote(
-            text
-        ) == format_expandable_quote(text)

@@ -408,7 +408,6 @@ class GeminiProvider(JsonlProvider):
         supports_structured_transcript=True,
         supports_incremental_read=False,
         transcript_format="plain",
-        terminal_ui_patterns=("SelectionUI", "PermissionPrompt"),
         uses_pane_title=True,
         builtin_commands=tuple(_GEMINI_BUILTINS.keys()),
     )
@@ -597,12 +596,6 @@ class GeminiProvider(JsonlProvider):
             content_type="text",
             timestamp=entry.get("timestamp"),
         )
-
-    def parse_hook_payload(
-        self,
-        payload: dict[str, Any],  # noqa: ARG002 — protocol signature
-    ) -> SessionStartEvent | None:
-        return None
 
     @staticmethod
     def _candidate_chats_dirs(

@@ -197,7 +197,6 @@ class TestForwardCommandResolution:
     async def test_clear_enqueues_status_clear_and_resets_idle(self) -> None:
         from ccbot.handlers.status_polling import (
             _has_seen_status,
-            reset_idle_clear_state,
             reset_seen_status_state,
         )
 
@@ -219,7 +218,6 @@ class TestForwardCommandResolution:
             assert call_args[1]["thread_id"] == 42
             assert "@1" not in _has_seen_status
         finally:
-            reset_idle_clear_state()
             reset_seen_status_state()
 
     async def test_no_session_bound(self) -> None:

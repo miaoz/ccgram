@@ -99,23 +99,7 @@ class TestCodexLaunchArgs:
         assert result == "resume --last"
 
 
-# ── Codex capabilities ───────────────────────────────────────────────────
-
-
-class TestCodexCapabilities:
-    def test_declares_interactive_patterns(self) -> None:
-        codex = CodexProvider()
-        assert "SelectionUI" in codex.capabilities.terminal_ui_patterns
-        assert "PermissionPrompt" in codex.capabilities.terminal_ui_patterns
-
-
 # ── Gemini-specific ──────────────────────────────────────────────────────
-
-
-class TestGeminiCapabilities:
-    def test_declares_permission_prompt(self) -> None:
-        gemini = GeminiProvider()
-        assert "PermissionPrompt" in gemini.capabilities.terminal_ui_patterns
 
 
 class TestGeminiLaunchArgs:

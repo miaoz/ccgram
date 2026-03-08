@@ -321,15 +321,6 @@ class TranscriptParser:
         """Extract timestamp from message data."""
         return data.get("timestamp")
 
-    @staticmethod
-    def _format_expandable_quote(text: str) -> str:
-        """Format text as a Telegram expandable blockquote.
-
-        Thin wrapper around the shared ``format_expandable_quote()`` in
-        ``providers.base``.
-        """
-        return format_expandable_quote(text)
-
     @classmethod
     def _format_tool_result_text(cls, text: str, tool_name: str | None = None) -> str:
         """Format tool result text with statistics summary.
@@ -353,36 +344,36 @@ class TranscriptParser:
         elif tool_name == "Bash":
             if line_count > 0:
                 stats = f"  ⎿  {line_count} lines"
-                return stats + "\n" + cls._format_expandable_quote(text)
-            return cls._format_expandable_quote(text)
+                return stats + "\n" + format_expandable_quote(text)
+            return format_expandable_quote(text)
 
         elif tool_name == "Grep":
             matches = sum(1 for line in text.split("\n") if line.strip())
             stats = f"  ⎿  {matches} matches"
-            return stats + "\n" + cls._format_expandable_quote(text)
+            return stats + "\n" + format_expandable_quote(text)
 
         elif tool_name == "Glob":
             files = sum(1 for line in text.split("\n") if line.strip())
             stats = f"  ⎿  {files} files"
-            return stats + "\n" + cls._format_expandable_quote(text)
+            return stats + "\n" + format_expandable_quote(text)
 
         elif tool_name == "Task":
             if line_count > 0:
                 stats = f"  ⎿  {line_count} lines"
-                return stats + "\n" + cls._format_expandable_quote(text)
-            return cls._format_expandable_quote(text)
+                return stats + "\n" + format_expandable_quote(text)
+            return format_expandable_quote(text)
 
         elif tool_name == "WebFetch":
             char_count = len(text)
             stats = f"  ⎿  {char_count} chars"
-            return stats + "\n" + cls._format_expandable_quote(text)
+            return stats + "\n" + format_expandable_quote(text)
 
         elif tool_name == "WebSearch":
             results = text.count("\n\n") + 1 if text else 0
             stats = f"  ⎿  {results} results"
-            return stats + "\n" + cls._format_expandable_quote(text)
+            return stats + "\n" + format_expandable_quote(text)
 
-        return cls._format_expandable_quote(text)
+        return format_expandable_quote(text)
 
     @classmethod
     def parse_entries(
@@ -533,7 +524,7 @@ class TranscriptParser:
                     elif btype == "thinking":
                         thinking_text = block.get("thinking", "")
                         if thinking_text:
-                            quoted = cls._format_expandable_quote(thinking_text)
+                            quoted = format_expandable_quote(thinking_text)
                             result.append(
                                 ParsedEntry(
                                     role="assistant",
@@ -608,7 +599,7 @@ class TranscriptParser:
                                     )
                                 entry_text += f"\n  ⎿  \u26a0\ufe0f {error_summary}"
                                 if "\n" in result_text:
-                                    entry_text += "\n" + cls._format_expandable_quote(
+                                    entry_text += "\n" + format_expandable_quote(
                                         result_text
                                     )
                             else:
@@ -648,7 +639,7 @@ class TranscriptParser:
                                             "\n"
                                             + stats
                                             + "\n"
-                                            + cls._format_expandable_quote(diff_text)
+                                            + format_expandable_quote(diff_text)
                                         )
                             # For other tools, append formatted result text
                             elif (

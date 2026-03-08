@@ -4,8 +4,6 @@ Separates command-source discovery (filesystem skills/commands) from
 Telegram menu formatting and provider implementations.
 """
 
-from __future__ import annotations
-
 import time
 from dataclasses import dataclass, field
 from pathlib import Path

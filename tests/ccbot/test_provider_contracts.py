@@ -41,7 +41,6 @@ class StubProvider(JsonlProvider):
         supports_continue=True,
         supports_structured_transcript=True,
         transcript_format="jsonl",
-        terminal_ui_patterns=("AskUserQuestion",),
         builtin_commands=("help", "clear"),
     )
 

@@ -1,7 +1,5 @@
 """Tests for terminal_parser — regex-based detection of Claude Code UI elements."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import pytest
@@ -14,7 +12,6 @@ from ccbot.terminal_parser import (
     extract_interactive_content,
     find_chrome_boundary,
     format_status_display,
-    is_interactive_ui,
     is_likely_spinner,
     parse_status_line,
     strip_pane_chrome,
@@ -450,18 +447,18 @@ class TestExtractInteractiveContent:
         assert extract_interactive_content(pane) is None
 
 
-# ── is_interactive_ui ────────────────────────────────────────────────────
+# ── is_interactive_ui (via extract_interactive_content) ───────────────────
 
 
 class TestIsInteractiveUI:
     def test_true_when_ui_present(self, sample_pane_exit_plan: str):
-        assert is_interactive_ui(sample_pane_exit_plan) is True
+        assert extract_interactive_content(sample_pane_exit_plan) is not None
 
     def test_false_when_no_ui(self, sample_pane_no_ui: str):
-        assert is_interactive_ui(sample_pane_no_ui) is False
+        assert extract_interactive_content(sample_pane_no_ui) is None
 
     def test_false_for_empty_string(self):
-        assert is_interactive_ui("") is False
+        assert extract_interactive_content("") is None
 
 
 # ── strip_pane_chrome ───────────────────────────────────────────────────

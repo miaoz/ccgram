@@ -21,7 +21,6 @@ from ccbot.providers.base import (
 )
 
 from ccbot.terminal_parser import (
-    UI_PATTERNS,
     extract_bash_output,
     extract_interactive_content,
     format_status_display,
@@ -43,7 +42,6 @@ class ClaudeProvider:
         supports_continue=True,
         supports_structured_transcript=True,
         transcript_format="jsonl",
-        terminal_ui_patterns=tuple(p.name for p in UI_PATTERNS),
         builtin_commands=tuple(CC_BUILTINS.keys()),
         supports_user_command_discovery=True,
     )

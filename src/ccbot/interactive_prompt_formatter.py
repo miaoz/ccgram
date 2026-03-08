@@ -4,8 +4,6 @@ Currently used for Codex interactive prompts to keep approval controls readable
 when edit diffs are rendered in dense side-by-side terminal output.
 """
 
-from __future__ import annotations
-
 import re
 
 _ACTION_HINT_RE = re.compile(

@@ -9,8 +9,8 @@ Parses captured tmux pane content to detect:
 All Claude Code text patterns live here. To support a new UI type or
 a changed Claude Code version, edit UI_PATTERNS / STATUS_SPINNERS.
 
-Key functions: is_interactive_ui(), extract_interactive_content(),
-parse_status_line(), strip_pane_chrome(), extract_bash_output().
+Key functions: extract_interactive_content(), parse_status_line(),
+strip_pane_chrome(), extract_bash_output().
 """
 
 import re
@@ -282,11 +282,6 @@ def parse_status_from_screen(screen: ScreenBuffer) -> str | None:
 
     # Reuse the existing parse_status_line logic on the joined text
     return parse_status_line("\n".join(active_lines), pane_rows=screen.rows)
-
-
-def is_interactive_ui(pane_text: str) -> bool:
-    """Check if terminal currently shows an interactive UI."""
-    return extract_interactive_content(pane_text) is not None
 
 
 # ── Status line parsing ─────────────────────────────────────────────────

@@ -28,7 +28,7 @@ from ccbot.providers.base import (
     StatusUpdate,
     format_expandable_quote,
 )
-from ccbot.terminal_parser import UI_PATTERNS, extract_interactive_content
+from ccbot.terminal_parser import extract_interactive_content
 
 # Codex CLI known slash commands
 # NOTE: /new excluded — collides with bot-native /new (create session)
@@ -524,7 +524,6 @@ class CodexProvider(JsonlProvider):
         supports_continue=True,
         supports_structured_transcript=True,
         transcript_format="jsonl",
-        terminal_ui_patterns=tuple(p.name for p in UI_PATTERNS),
         builtin_commands=tuple(_CODEX_BUILTINS.keys()),
         supports_user_command_discovery=True,
     )
@@ -550,20 +549,6 @@ class CodexProvider(JsonlProvider):
         return ""
 
     # ── Codex-specific transcript parsing ─────────────────────────────
-
-    def parse_transcript_line(self, line: str) -> dict[str, Any] | None:
-        """Parse a Codex JSONL line.
-
-        Codex entries are stored as JSON objects:
-        ``{timestamp, type, payload}``.
-        """
-        if not line or not line.strip():
-            return None
-        try:
-            result = json.loads(line)
-            return result if isinstance(result, dict) else None
-        except json.JSONDecodeError:
-            return None
 
     def parse_transcript_entries(
         self,
@@ -714,10 +699,4 @@ class CodexProvider(JsonlProvider):
                         transcript_path=str(fpath),
                         window_key=window_key,
                     )
-        return None
-
-    def parse_hook_payload(
-        self,
-        payload: dict[str, Any],  # noqa: ARG002 — protocol signature
-    ) -> SessionStartEvent | None:
         return None

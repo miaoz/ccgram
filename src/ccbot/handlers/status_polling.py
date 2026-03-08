@@ -103,10 +103,6 @@ _probe_failures: dict[str, int] = {}
 _TYPING_INTERVAL = 4.0
 _last_typing_sent: dict[tuple[int, int], float] = {}
 
-# Idle status is intentionally persistent (no auto-clear).
-# Keep timer state/functions only for backward compatibility with tests/callers.
-_idle_clear_timers: dict[tuple[int, int], tuple[str, float]] = {}
-
 # Transcript activity heuristic: if transcript was written to within this many
 # seconds, treat the window as active even without a terminal status signal.
 _ACTIVITY_THRESHOLD = 10.0
@@ -230,33 +226,6 @@ def reset_seen_status_state() -> None:
 def reset_typing_state() -> None:
     """Reset all typing indicator tracking (for testing)."""
     _last_typing_sent.clear()
-
-
-def _start_idle_clear_timer(user_id: int, thread_id: int, window_id: str) -> None:
-    """No-op: idle status auto-clear is disabled to keep controls persistent."""
-    del user_id, thread_id, window_id
-    return
-
-
-def _cancel_idle_clear_timer(user_id: int, thread_id: int) -> None:
-    """Cancel idle clear timer when the window becomes active again."""
-    _idle_clear_timers.pop((user_id, thread_id), None)
-
-
-def clear_idle_clear_timer(user_id: int, thread_id: int) -> None:
-    """Remove idle clear timer for a topic (called on cleanup)."""
-    _cancel_idle_clear_timer(user_id, thread_id)
-
-
-def reset_idle_clear_state() -> None:
-    """Reset all idle clear timers (for testing)."""
-    _idle_clear_timers.clear()
-
-
-async def _check_idle_clear_timers(bot: Bot) -> None:
-    """No-op: idle status auto-clear is disabled to keep controls persistent."""
-    del bot
-    return
 
 
 def _start_autoclose_timer(
@@ -428,7 +397,6 @@ async def _handle_no_status(
     if is_active:
         await _send_typing_throttled(bot, user_id, thread_id)
         if thread_id is not None:
-            _cancel_idle_clear_timer(user_id, thread_id)
             chat_id = session_manager.resolve_chat_id(user_id, thread_id)
             display = session_manager.get_display_name(window_id)
             await update_topic_emoji(bot, chat_id, thread_id, "active", display)
@@ -459,7 +427,6 @@ async def _handle_no_status(
         await update_topic_emoji(bot, chat_id, thread_id, "done", display)
         _start_autoclose_timer(user_id, thread_id, "done", now)
         _last_typing_sent.pop((user_id, thread_id), None)
-        _cancel_idle_clear_timer(user_id, thread_id)
         await enqueue_status_update(bot, user_id, window_id, None, thread_id=thread_id)
     elif window_id in _has_seen_status:
         await _transition_to_idle(
@@ -701,8 +668,6 @@ async def update_status_message(
         _has_seen_status.add(window_id)
         _startup_times.pop(window_id, None)
         await _send_typing_throttled(bot, user_id, thread_id)
-        if thread_id is not None:
-            _cancel_idle_clear_timer(user_id, thread_id)
         if notif_mode not in ("muted", "errors_only"):
             # Append subagent count if any are active
             from .hook_events import get_subagent_count
@@ -1000,7 +965,6 @@ async def status_poll_loop(bot: Bot) -> None:
 
             # Check timers at end of each poll cycle
             await _check_autoclose_timers(bot)
-            await _check_idle_clear_timers(bot)
             await _check_unbound_window_ttl(live_windows)
 
         except _LoopError:

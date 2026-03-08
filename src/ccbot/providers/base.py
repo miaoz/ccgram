@@ -114,7 +114,6 @@ class ProviderCapabilities:
     supports_structured_transcript: bool = False
     supports_incremental_read: bool = True  # False → whole-file JSON (e.g. Gemini)
     transcript_format: Literal["jsonl", "plain"] = "jsonl"
-    terminal_ui_patterns: tuple[str, ...] = ()
     uses_pane_title: bool = False  # Provider reads OSC pane title for status
     builtin_commands: tuple[str, ...] = ()
     # When true, CommandCatalog appends user-defined commands discovered from
