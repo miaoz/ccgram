@@ -794,15 +794,14 @@ async def _handle_dead_window_notification(
     else:
         text = f"\u26a0 Session `{display}` ended."
         keyboard = None
-    sent = await rate_limit_send_message(
+    await rate_limit_send_message(
         bot,
         chat_id,
         text,
         message_thread_id=thread_id,
         reply_markup=keyboard,
     )
-    if sent:
-        _dead_notified.add(dead_key)
+    _dead_notified.add(dead_key)
 
 
 def _record_probe_failure(window_id: str) -> int:
@@ -843,7 +842,10 @@ async def _probe_topic_existence(bot: Bot) -> None:
             )
             _get_window_state(wid).probe_failures = 0
         except TelegramError as e:
-            if isinstance(e, BadRequest) and "Topic_id_invalid" in e.message:
+            if isinstance(e, BadRequest) and (
+                "Topic_id_invalid" in e.message
+                or "thread not found" in e.message.lower()
+            ):
                 # Topic deleted — kill window, unbind, and clean up state
                 w = await tmux_manager.find_window_by_id(wid)
                 if w:

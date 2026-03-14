@@ -15,7 +15,9 @@ from ccbot.handlers.status_polling import (
     _check_autoclose_timers,
     _check_transcript_activity,
     _clear_autoclose_if_active,
+    _dead_notified,
     _get_window_state,
+    _handle_dead_window_notification,
     _MAX_PROBE_FAILURES,
     _probe_topic_existence,
     _prune_stale_state,
@@ -42,9 +44,11 @@ def _get_autoclose(user_id: int, thread_id: int) -> tuple[str, float] | None:
 def _reset():
     _window_poll_state.clear()
     _topic_poll_state.clear()
+    _dead_notified.clear()
     yield
     _window_poll_state.clear()
     _topic_poll_state.clear()
+    _dead_notified.clear()
 
 
 class TestIsShellPrompt:
@@ -1212,3 +1216,101 @@ class TestMaybeDiscoverTranscript:
             transcript_path="/Users/alexei/.gemini/tmp/ccbot/chats/session.json",
             provider_name="gemini",
         )
+
+
+class TestDeadWindowNotification:
+    async def test_marks_notified_even_when_send_fails(self) -> None:
+        """When rate_limit_send_message returns None (send fails),
+        _dead_notified is still populated so we don't retry forever."""
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccbot.handlers.status_polling.session_manager") as mock_sm,
+            patch(
+                "ccbot.handlers.status_polling.rate_limit_send_message",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "ccbot.handlers.status_polling.update_topic_emoji",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "ccbot.handlers.status_polling.build_recovery_keyboard",
+                return_value=None,
+            ),
+            patch(
+                "ccbot.handlers.status_polling.asyncio.to_thread",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            mock_sm.resolve_chat_id.return_value = -100
+            mock_sm.get_display_name.return_value = "test"
+            mock_sm.get_window_state.return_value = MagicMock(cwd="/proj")
+            await _handle_dead_window_notification(bot, 1, 42, "@5")
+
+        assert (1, 42, "@5") in _dead_notified
+
+    async def test_no_retry_after_failed_send(self) -> None:
+        """Second call is a no-op because _dead_notified was set on first call."""
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccbot.handlers.status_polling.session_manager") as mock_sm,
+            patch(
+                "ccbot.handlers.status_polling.rate_limit_send_message",
+                new_callable=AsyncMock,
+                return_value=None,
+            ) as mock_send,
+            patch(
+                "ccbot.handlers.status_polling.update_topic_emoji",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "ccbot.handlers.status_polling.build_recovery_keyboard",
+                return_value=None,
+            ),
+            patch(
+                "ccbot.handlers.status_polling.asyncio.to_thread",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            mock_sm.resolve_chat_id.return_value = -100
+            mock_sm.get_display_name.return_value = "test"
+            mock_sm.get_window_state.return_value = MagicMock(cwd="/proj")
+            await _handle_dead_window_notification(bot, 1, 42, "@5")
+            await _handle_dead_window_notification(bot, 1, 42, "@5")
+
+        mock_send.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            pytest.param("Message thread not found", id="capitalized"),
+            pytest.param("message thread not found", id="lowercase"),
+            pytest.param("Bad Request: Thread not found", id="thread-variant"),
+        ],
+    )
+    async def test_probe_cleans_up_on_thread_not_found(self, error_msg: str) -> None:
+        """Probe handles thread-not-found variants by cleaning up the binding."""
+        bot = AsyncMock(spec=Bot)
+        bot.unpin_all_forum_topic_messages.side_effect = BadRequest(error_msg)
+        mock_window = MagicMock()
+        mock_window.window_id = "@5"
+        with (
+            patch("ccbot.handlers.status_polling.session_manager") as mock_sm,
+            patch("ccbot.handlers.status_polling.tmux_manager") as mock_tm,
+            patch(
+                "ccbot.handlers.status_polling.clear_topic_state",
+                new_callable=AsyncMock,
+            ) as mock_cleanup,
+        ):
+            mock_sm.iter_thread_bindings.return_value = [(1, 42, "@5")]
+            mock_sm.resolve_chat_id.return_value = -100
+            mock_tm.find_window_by_id = AsyncMock(return_value=mock_window)
+            mock_tm.kill_window = AsyncMock()
+            await _probe_topic_existence(bot)
+
+        mock_tm.kill_window.assert_called_once_with("@5")
+        mock_cleanup.assert_called_once_with(1, 42, bot, window_id="@5")
+        mock_sm.unbind_thread.assert_called_once_with(1, 42)
