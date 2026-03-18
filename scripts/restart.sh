@@ -89,7 +89,7 @@ ensure_target() {
 	fi
 	if ! tmux list-windows -t "${TMUX_SESSION}" -F '#{window_name}' | grep -qx "${TMUX_WINDOW}"; then
 		echo "Creating window '${TMUX_WINDOW}' in session '${TMUX_SESSION}'..."
-		tmux new-window -t "${TMUX_SESSION}" -n "${TMUX_WINDOW}" -c "${PROJECT_DIR}"
+		tmux new-window -ad -t "${TMUX_SESSION}" -n "${TMUX_WINDOW}" -c "${PROJECT_DIR}"
 	fi
 }
 
