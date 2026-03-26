@@ -2074,3 +2074,250 @@ class TestUpdateStatusMessageEdgeCases:
             mock_tm.capture_pane = AsyncMock(return_value="Allow?\nEsc\n")
             await update_status_message(bot, 1, "@0", thread_id=42)
         mock_handle.assert_called_once_with(bot, 1, "@0", 42)
+
+
+@pytest.mark.usefixtures("_reset_pyte")
+class TestCheckInteractiveOnly:
+    """Tests for _check_interactive_only — interactive UI detection during queue backlog."""
+
+    @pytest.mark.parametrize(
+        "interactive_window",
+        [
+            pytest.param(None, id="no_active_ui"),
+            pytest.param("@1", id="different_window_active"),
+        ],
+    )
+    async def test_detects_interactive_ui(self, interactive_window: str | None) -> None:
+        from ccgram.handlers.status_polling import _check_interactive_only
+        from ccgram.providers.base import StatusUpdate
+
+        interactive_status = StatusUpdate(
+            raw_text="Allow?",
+            display_label="Allow?",
+            is_interactive=True,
+            ui_type="PermissionPrompt",
+        )
+        mock_window = MagicMock()
+        mock_window.window_id = "@0"
+        mock_window.pane_width = 80
+        mock_window.pane_height = 24
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccgram.handlers.status_polling.tmux_manager") as mock_tm,
+            patch(
+                "ccgram.handlers.status_polling.get_interactive_window",
+                return_value=interactive_window,
+            ),
+            patch(
+                "ccgram.handlers.status_polling._parse_with_pyte",
+                return_value=interactive_status,
+            ) as mock_pyte,
+            patch(
+                "ccgram.handlers.status_polling.handle_interactive_ui",
+                new_callable=AsyncMock,
+            ) as mock_handle,
+            patch(
+                "ccgram.handlers.status_polling.set_interactive_mode",
+            ) as mock_set,
+        ):
+            mock_tm.capture_pane = AsyncMock(return_value="Allow?\nEsc\n")
+            await _check_interactive_only(bot, 1, "@0", 42, _window=mock_window)
+        mock_pyte.assert_called_once_with("@0", "Allow?\nEsc\n", columns=80, rows=24)
+        mock_set.assert_called_once_with(1, "@0", 42)
+        mock_handle.assert_called_once_with(bot, 1, "@0", 42)
+
+    async def test_clears_interactive_mode_on_handle_failure(self) -> None:
+        from ccgram.handlers.status_polling import _check_interactive_only
+        from ccgram.providers.base import StatusUpdate
+
+        interactive_status = StatusUpdate(
+            raw_text="Allow?",
+            display_label="Allow?",
+            is_interactive=True,
+            ui_type="PermissionPrompt",
+        )
+        mock_window = MagicMock()
+        mock_window.window_id = "@0"
+        mock_window.pane_width = 80
+        mock_window.pane_height = 24
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccgram.handlers.status_polling.tmux_manager") as mock_tm,
+            patch(
+                "ccgram.handlers.status_polling.get_interactive_window",
+                return_value=None,
+            ),
+            patch(
+                "ccgram.handlers.status_polling._parse_with_pyte",
+                return_value=interactive_status,
+            ),
+            patch(
+                "ccgram.handlers.status_polling.handle_interactive_ui",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "ccgram.handlers.status_polling.set_interactive_mode",
+            ) as mock_set,
+            patch(
+                "ccgram.handlers.status_polling.clear_interactive_mode",
+            ) as mock_clear,
+        ):
+            mock_tm.capture_pane = AsyncMock(return_value="Allow?\nEsc\n")
+            await _check_interactive_only(bot, 1, "@0", 42, _window=mock_window)
+        mock_set.assert_called_once_with(1, "@0", 42)
+        mock_clear.assert_called_once_with(1, 42)
+
+    async def test_skips_when_already_interactive(self) -> None:
+        from ccgram.handlers.status_polling import _check_interactive_only
+
+        mock_window = MagicMock()
+        mock_window.window_id = "@0"
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccgram.handlers.status_polling.tmux_manager") as mock_tm,
+            patch(
+                "ccgram.handlers.status_polling.get_interactive_window",
+                return_value="@0",
+            ),
+            patch(
+                "ccgram.handlers.status_polling._parse_with_pyte",
+            ) as mock_pyte,
+            patch(
+                "ccgram.handlers.status_polling.handle_interactive_ui",
+                new_callable=AsyncMock,
+            ) as mock_handle,
+        ):
+            mock_tm.capture_pane = AsyncMock()
+            await _check_interactive_only(bot, 1, "@0", 42, _window=mock_window)
+        mock_tm.capture_pane.assert_not_called()
+        mock_pyte.assert_not_called()
+        mock_handle.assert_not_called()
+
+    async def test_no_action_when_not_interactive(self) -> None:
+        from ccgram.handlers.status_polling import _check_interactive_only
+        from ccgram.providers.base import StatusUpdate
+
+        normal_status = StatusUpdate(
+            raw_text="Reading file", display_label="reading..."
+        )
+        mock_window = MagicMock()
+        mock_window.window_id = "@0"
+        mock_window.pane_width = 80
+        mock_window.pane_height = 24
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccgram.handlers.status_polling.tmux_manager") as mock_tm,
+            patch(
+                "ccgram.handlers.status_polling.get_interactive_window",
+                return_value=None,
+            ),
+            patch(
+                "ccgram.handlers.status_polling._parse_with_pyte",
+                return_value=normal_status,
+            ),
+            patch(
+                "ccgram.handlers.status_polling.handle_interactive_ui",
+                new_callable=AsyncMock,
+            ) as mock_handle,
+        ):
+            mock_tm.capture_pane = AsyncMock(return_value="some output")
+            await _check_interactive_only(bot, 1, "@0", 42, _window=mock_window)
+        mock_handle.assert_not_called()
+
+    async def test_no_action_when_window_gone(self) -> None:
+        from ccgram.handlers.status_polling import _check_interactive_only
+
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccgram.handlers.status_polling.tmux_manager") as mock_tm,
+            patch(
+                "ccgram.handlers.status_polling.handle_interactive_ui",
+                new_callable=AsyncMock,
+            ) as mock_handle,
+        ):
+            mock_tm.find_window_by_id = AsyncMock(return_value=None)
+            await _check_interactive_only(bot, 1, "@0", 42)
+        mock_handle.assert_not_called()
+
+    async def test_no_action_on_empty_capture(self) -> None:
+        from ccgram.handlers.status_polling import _check_interactive_only
+
+        mock_window = MagicMock()
+        mock_window.window_id = "@0"
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccgram.handlers.status_polling.tmux_manager") as mock_tm,
+            patch(
+                "ccgram.handlers.status_polling.get_interactive_window",
+                return_value=None,
+            ),
+            patch(
+                "ccgram.handlers.status_polling._parse_with_pyte",
+            ) as mock_pyte,
+            patch(
+                "ccgram.handlers.status_polling.handle_interactive_ui",
+                new_callable=AsyncMock,
+            ) as mock_handle,
+        ):
+            mock_tm.capture_pane = AsyncMock(return_value="")
+            await _check_interactive_only(bot, 1, "@0", 42, _window=mock_window)
+        mock_pyte.assert_not_called()
+        mock_handle.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("uses_pane_title", "expected_title"),
+        [
+            pytest.param(False, "", id="no_pane_title"),
+            pytest.param(True, "gemini-title", id="with_pane_title"),
+        ],
+    )
+    async def test_falls_back_to_provider_regex(
+        self, uses_pane_title: bool, expected_title: str
+    ) -> None:
+        from ccgram.handlers.status_polling import _check_interactive_only
+        from ccgram.providers.base import StatusUpdate
+
+        interactive_status = StatusUpdate(
+            raw_text="Allow?",
+            display_label="Allow?",
+            is_interactive=True,
+            ui_type="PermissionPrompt",
+        )
+        mock_provider = MagicMock()
+        mock_provider.capabilities.uses_pane_title = uses_pane_title
+        mock_provider.parse_terminal_status.return_value = interactive_status
+        mock_window = MagicMock()
+        mock_window.window_id = "@0"
+        mock_window.pane_width = 80
+        mock_window.pane_height = 24
+        bot = AsyncMock(spec=Bot)
+        with (
+            patch("ccgram.handlers.status_polling.tmux_manager") as mock_tm,
+            patch(
+                "ccgram.handlers.status_polling.get_interactive_window",
+                return_value=None,
+            ),
+            patch(
+                "ccgram.handlers.status_polling._parse_with_pyte",
+                return_value=None,
+            ),
+            patch(
+                "ccgram.handlers.status_polling.get_provider_for_window",
+                return_value=mock_provider,
+            ),
+            patch(
+                "ccgram.handlers.status_polling.handle_interactive_ui",
+                new_callable=AsyncMock,
+            ) as mock_handle,
+            patch("ccgram.handlers.status_polling.set_interactive_mode"),
+        ):
+            mock_tm.capture_pane = AsyncMock(return_value="Allow?\nEsc\n")
+            mock_tm.get_pane_title = AsyncMock(return_value="gemini-title")
+            await _check_interactive_only(bot, 1, "@0", 42, _window=mock_window)
+        mock_provider.parse_terminal_status.assert_called_once_with(
+            "Allow?\nEsc\n", pane_title=expected_title
+        )
+        mock_handle.assert_called_once_with(bot, 1, "@0", 42)
+        if uses_pane_title:
+            mock_tm.get_pane_title.assert_called_once_with("@0")

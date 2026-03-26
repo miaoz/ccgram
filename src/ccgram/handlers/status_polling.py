@@ -55,9 +55,11 @@ from ..session_monitor import get_active_monitor
 from ..tmux_manager import tmux_manager
 from ..utils import log_throttle_sweep, log_throttled
 from .interactive_ui import (
+    clear_interactive_mode,
     clear_interactive_msg,
     get_interactive_window,
     handle_interactive_ui,
+    set_interactive_mode,
 )
 from .cleanup import clear_topic_state
 from .message_queue import (
@@ -746,6 +748,60 @@ async def _scan_window_panes(
         )
 
 
+async def _check_interactive_only(
+    bot: Bot,
+    user_id: int,
+    window_id: str,
+    thread_id: int,
+    *,
+    _window: TmuxWindow | None = None,
+) -> None:
+    """Check for interactive UI without enqueuing status updates.
+
+    Called during queue backlog so permission prompts are still detected
+    even when normal status updates are skipped.  Uses pyte parsing with
+    content-hash cache (cheap no-op when terminal is unchanged).
+
+    Interactive UI messages bypass the message queue (sent directly via
+    bot API), so this does not worsen the backlog.
+    """
+    w = _window or await tmux_manager.find_window_by_id(window_id)
+    if not w:
+        return
+
+    # Already in interactive mode for this window — nothing to do
+    if get_interactive_window(user_id, thread_id) == window_id:
+        return
+
+    pane_text = await tmux_manager.capture_pane(w.window_id, with_ansi=True)
+    if not pane_text:
+        return
+
+    status = _parse_with_pyte(
+        window_id, pane_text, columns=w.pane_width, rows=w.pane_height
+    )
+
+    if status is None:
+        # pyte returned nothing — fall back to provider regex parsing
+        ws = _get_window_state(window_id)
+        clean_text = (
+            ws.last_rendered_text if ws.last_rendered_text is not None else pane_text
+        )
+        provider = get_provider_for_window(window_id)
+        pane_title = ""
+        if provider.capabilities.uses_pane_title:
+            pane_title = await tmux_manager.get_pane_title(w.window_id)
+        status = provider.parse_terminal_status(clean_text, pane_title=pane_title)
+
+    if status is not None and status.is_interactive:
+        # Pre-set interactive mode to prevent racing with _handle_notification
+        # (hook path). If handle_interactive_ui fails, clear it.
+        set_interactive_mode(user_id, window_id, thread_id)
+        handled = await handle_interactive_ui(bot, user_id, window_id, thread_id)
+        if not handled:
+            clear_interactive_mode(user_id, thread_id)
+
+
 async def update_status_message(
     bot: Bot,
     user_id: int,
@@ -1223,10 +1279,13 @@ async def status_poll_loop(bot: Bot) -> None:
 
                     queue = get_message_queue(user_id)
                     if queue and not queue.empty():
-                        # Queue busy — skip status updates but still run passive
-                        # shell monitoring (uses stale pyte text, hash dedup
-                        # handles it) so shell output relay isn't blocked by
-                        # unrelated windows flooding the queue.
+                        # Queue busy — skip full status updates but still check
+                        # for interactive UI (permission prompts bypass the queue)
+                        # and scan non-active panes for blocked agent teammates.
+                        await _check_interactive_only(
+                            bot, user_id, wid, thread_id, _window=w
+                        )
+                        await _scan_window_panes(bot, user_id, wid, thread_id)
                         await _maybe_check_passive_shell(bot, user_id, wid, thread_id)
                         continue
                     await update_status_message(
