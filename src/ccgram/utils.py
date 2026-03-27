@@ -14,8 +14,6 @@ Provides:
   - handle_general_topic_message(): pin-once-then-react for General topic messages.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import json
@@ -25,13 +23,11 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
+from telegram import Bot, Message
 from telegram.error import TelegramError
-
-if TYPE_CHECKING:
-    from telegram import Bot, Message
 
 logger = structlog.get_logger()
 
