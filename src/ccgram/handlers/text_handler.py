@@ -42,7 +42,7 @@ from .user_state import PENDING_THREAD_ID, PENDING_THREAD_TEXT, RECOVERY_WINDOW_
 from ..session import session_manager
 from ..providers import get_provider_for_window
 from ..tmux_manager import tmux_manager
-from ..utils import task_done_callback
+from ..utils import handle_general_topic_message, is_general_topic, task_done_callback
 
 logger = structlog.get_logger()
 
@@ -378,10 +378,15 @@ async def handle_text_message(
 
     # Must be in a named topic
     if thread_id is None:
-        await safe_reply(
-            message,
-            "\u274c Please use a named topic. Create a new topic to start a session.",
-        )
+        if message and update.effective_chat and is_general_topic(message):
+            await handle_general_topic_message(
+                context.bot, message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(
+                message,
+                "\u274c Please use a named topic. Create a new topic to start a session.",
+            )
         return
 
     # Unbound topic — show picker or browser

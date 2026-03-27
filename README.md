@@ -146,7 +146,10 @@ brew install alexei-led/tap/ccgram    # Homebrew (macOS)
    - **Group Privacy**: Disabled (Bot Settings > Groups & Channels > Group Privacy > Turn off) — _Required to see all messages in topics_
    - **Topics**: Enabled (Bot Settings > Groups & Channels > Edit Topics > Enable)
 3. Add the bot to a Telegram group with Topics enabled.
-4. **Promote the bot to Administrator** and ensure it has the **Create Topics** permission (required for the bot to automatically sync and manage session topics).
+4. **Promote the bot to Administrator** and ensure it has these permissions:
+   - **Create Topics** (required for the bot to automatically sync and manage session topics)
+   - **Pin Messages** (required for the General-topic usage hint)
+   - Note: the bot also uses **message reactions** in the General topic — this requires no extra permission.
 5. Create `~/.ccgram/.env`:
 
 ```ini

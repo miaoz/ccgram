@@ -1,17 +1,21 @@
-"""Tests for ccgram.utils: ccgram_dir, atomic_write_json, read_cwd_from_jsonl, read_session_metadata_from_jsonl, log_throttled, assert_sendable."""
+"""Tests for ccgram.utils: ccgram_dir, atomic_write_json, read_cwd_from_jsonl, read_session_metadata_from_jsonl, log_throttled, assert_sendable, handle_general_topic_message, is_general_topic."""
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import structlog
 
 from ccgram.utils import (
     _SCAN_LINES,
+    _general_topic_pin_cache,
     _throttle_state,
     assert_sendable,
     atomic_write_json,
     ccgram_dir,
+    handle_general_topic_message,
+    is_general_topic,
     log_throttle_reset,
     log_throttle_sweep,
     log_throttled,
@@ -485,3 +489,129 @@ class TestShortenPath:
             shorten_path("/home/userextra/file.py", "/home/user")
             == "/home/userextra/file.py"
         )
+
+
+class TestHandleGeneralTopicMessage:
+    @pytest.fixture(autouse=True)
+    def _clean_cache(self):
+        _general_topic_pin_cache.clear()
+        yield
+        _general_topic_pin_cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_first_message_sends_hint_and_pins(self) -> None:
+        bot = AsyncMock()
+        # No existing pinned message
+        chat_info = MagicMock()
+        chat_info.pinned_message = None
+        bot.get_chat = AsyncMock(return_value=chat_info)
+
+        message = AsyncMock()
+        hint_msg = AsyncMock()
+        message.reply_text = AsyncMock(return_value=hint_msg)
+
+        await handle_general_topic_message(bot, message, chat_id=123)
+
+        message.reply_text.assert_called_once()
+        assert "named topic" in message.reply_text.call_args.args[0]
+        hint_msg.pin.assert_called_once_with(disable_notification=True)
+        assert _general_topic_pin_cache[123] is True
+
+    @pytest.mark.asyncio
+    async def test_subsequent_message_reacts_only(self) -> None:
+        _general_topic_pin_cache[123] = True
+
+        bot = AsyncMock()
+        message = AsyncMock()
+
+        await handle_general_topic_message(bot, message, chat_id=123)
+
+        message.set_reaction.assert_called_once_with("\U0001f914")
+        message.reply_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_detects_existing_pinned_bot_message(self) -> None:
+        bot = AsyncMock()
+        bot.id = 999
+        pinned = MagicMock()
+        pinned.from_user.id = 999
+        chat_info = MagicMock()
+        chat_info.pinned_message = pinned
+        bot.get_chat = AsyncMock(return_value=chat_info)
+
+        message = AsyncMock()
+
+        await handle_general_topic_message(bot, message, chat_id=456)
+
+        # Should detect pinned message and react instead of re-pinning
+        message.set_reaction.assert_called_once_with("\U0001f914")
+        message.reply_text.assert_not_called()
+        assert _general_topic_pin_cache[456] is True
+
+    @pytest.mark.asyncio
+    async def test_ignores_pinned_message_from_other_bot(self) -> None:
+        bot = AsyncMock()
+        bot.id = 999
+        pinned = MagicMock()
+        pinned.from_user.id = 888  # different bot
+        chat_info = MagicMock()
+        chat_info.pinned_message = pinned
+        bot.get_chat = AsyncMock(return_value=chat_info)
+
+        message = AsyncMock()
+        hint_msg = AsyncMock()
+        message.reply_text = AsyncMock(return_value=hint_msg)
+
+        await handle_general_topic_message(bot, message, chat_id=456)
+
+        # Should send hint since pinned message is from a different bot
+        message.reply_text.assert_called_once()
+        hint_msg.pin.assert_called_once_with(disable_notification=True)
+
+    @pytest.mark.asyncio
+    async def test_pin_failure_does_not_crash_and_caches(self) -> None:
+        from telegram.error import TelegramError
+
+        bot = AsyncMock()
+        chat_info = MagicMock()
+        chat_info.pinned_message = None
+        bot.get_chat = AsyncMock(return_value=chat_info)
+
+        message = AsyncMock()
+        hint_msg = AsyncMock()
+        hint_msg.pin = AsyncMock(side_effect=TelegramError("no rights"))
+        message.reply_text = AsyncMock(return_value=hint_msg)
+
+        # Should not raise
+        await handle_general_topic_message(bot, message, chat_id=789)
+        # Cache should be set even though pin failed (one-shot guarantee)
+        assert _general_topic_pin_cache[789] is True
+
+    @pytest.mark.asyncio
+    async def test_react_failure_does_not_crash(self) -> None:
+        from telegram.error import TelegramError
+
+        _general_topic_pin_cache[123] = True
+        bot = AsyncMock()
+        message = AsyncMock()
+        message.set_reaction = AsyncMock(side_effect=TelegramError("forbidden"))
+
+        # Should not raise
+        await handle_general_topic_message(bot, message, chat_id=123)
+
+
+class TestIsGeneralTopic:
+    def test_general_topic_thread_id_1(self) -> None:
+        message = MagicMock()
+        message.message_thread_id = 1
+        assert is_general_topic(message) is True
+
+    def test_named_topic(self) -> None:
+        message = MagicMock()
+        message.message_thread_id = 42
+        assert is_general_topic(message) is False
+
+    def test_non_forum_context(self) -> None:
+        message = MagicMock()
+        message.message_thread_id = None
+        assert is_general_topic(message) is False

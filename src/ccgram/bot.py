@@ -169,7 +169,7 @@ from .session import session_manager
 from .session_monitor import NewMessage, NewWindowEvent, SessionMonitor
 from .telegram_request import ResilientPollingHTTPXRequest
 from .tmux_manager import tmux_manager
-from .utils import task_done_callback
+from .utils import handle_general_topic_message, is_general_topic, task_done_callback
 
 logger = structlog.get_logger()
 
@@ -606,7 +606,16 @@ async def unbind_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     thread_id = _get_thread_id(update)
     if thread_id is None:
-        await safe_reply(update.message, "\u274c Use this command inside a topic.")
+        if (
+            update.message
+            and update.effective_chat
+            and is_general_topic(update.message)
+        ):
+            await handle_general_topic_message(
+                update.get_bot(), update.message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(update.message, "\u274c Use this command inside a topic.")
         return
 
     window_id = session_manager.get_window_for_thread(user.id, thread_id)
@@ -983,7 +992,16 @@ async def screenshot_command(
 
     thread_id = _get_thread_id(update)
     if thread_id is None:
-        await safe_reply(update.message, "\u274c Use this command inside a topic.")
+        if (
+            update.message
+            and update.effective_chat
+            and is_general_topic(update.message)
+        ):
+            await handle_general_topic_message(
+                update.get_bot(), update.message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(update.message, "\u274c Use this command inside a topic.")
         return
 
     window_id = session_manager.get_window_for_thread(user.id, thread_id)
@@ -1034,7 +1052,16 @@ async def panes_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
 
     thread_id = _get_thread_id(update)
     if thread_id is None:
-        await safe_reply(update.message, "\u274c Use this command inside a topic.")
+        if (
+            update.message
+            and update.effective_chat
+            and is_general_topic(update.message)
+        ):
+            await handle_general_topic_message(
+                update.get_bot(), update.message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(update.message, "\u274c Use this command inside a topic.")
         return
 
     window_id = session_manager.get_window_for_thread(user.id, thread_id)
@@ -1090,7 +1117,16 @@ async def recall_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) ->
 
     thread_id = _get_thread_id(update)
     if thread_id is None:
-        await safe_reply(update.message, "\u274c Use this command inside a topic.")
+        if (
+            update.message
+            and update.effective_chat
+            and is_general_topic(update.message)
+        ):
+            await handle_general_topic_message(
+                update.get_bot(), update.message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(update.message, "\u274c Use this command inside a topic.")
         return
 
     from .handlers.command_history import (
@@ -1127,7 +1163,16 @@ async def toolbar_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -
 
     thread_id = _get_thread_id(update)
     if thread_id is None:
-        await safe_reply(update.message, "\u274c Use this command inside a topic.")
+        if (
+            update.message
+            and update.effective_chat
+            and is_general_topic(update.message)
+        ):
+            await handle_general_topic_message(
+                update.get_bot(), update.message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(update.message, "\u274c Use this command inside a topic.")
         return
 
     window_id = session_manager.get_window_for_thread(user.id, thread_id)
@@ -1158,7 +1203,16 @@ async def verbose_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -
 
     thread_id = _get_thread_id(update)
     if thread_id is None:
-        await safe_reply(update.message, "\u274c Use this command inside a topic.")
+        if (
+            update.message
+            and update.effective_chat
+            and is_general_topic(update.message)
+        ):
+            await handle_general_topic_message(
+                update.get_bot(), update.message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(update.message, "\u274c Use this command inside a topic.")
         return
 
     window_id = session_manager.get_window_for_thread(user.id, thread_id)
