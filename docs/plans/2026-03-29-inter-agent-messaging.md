@@ -416,13 +416,13 @@ Filtered broadcast: send a notify to all matching peers.
 
 Agents request new agent instances. Requires Telegram approval by default. **Reuse `topic_orchestration._create_topic_in_chat()` pattern** for auto-topic creation with per-chat `RetryAfter` backoff. **Use `@register("sp:ok:", "sp:no:")` decorator** from `callback_registry.py` for approval button handlers.
 
-- [ ] write tests for spawn request creation: validate provider, cwd, max-windows check
-- [ ] write tests for spawn rate limiting: max N per window per hour
-- [ ] write tests for approval flow: approve callback creates window, deny callback returns error
-- [ ] write tests for auto-mode: `--auto` bypasses approval but not max-windows or rate limits
-- [ ] write tests for spawn timeout: unapproved request expires after `CCGRAM_MSG_SPAWN_TIMEOUT`
-- [ ] write tests for context bootstrap: `--context` file attached to spawn
-- [ ] implement `src/ccgram/handlers/msg_spawn.py`:
+- [x] write tests for spawn request creation: validate provider, cwd, max-windows check
+- [x] write tests for spawn rate limiting: max N per window per hour
+- [x] write tests for approval flow: approve callback creates window, deny callback returns error
+- [x] write tests for auto-mode: `--auto` bypasses approval but not max-windows or rate limits
+- [x] write tests for spawn timeout: unapproved request expires after `CCGRAM_MSG_SPAWN_TIMEOUT`
+- [x] write tests for context bootstrap: `--context` file attached to spawn
+- [x] implement `src/ccgram/handlers/msg_spawn.py`:
   - `async def handle_spawn_request(bot, requester_window, provider, cwd, prompt, context_file, auto)`:
     - Validate provider exists, cwd exists, max-windows not exceeded
     - Rate limit check (per window per hour)
@@ -432,9 +432,9 @@ Agents request new agent instances. Requires Telegram approval by default. **Reu
     - On deny: return error to requester
     - On timeout: cancel request, return timeout error
   - Callback data: `CB_SPAWN_APPROVE = "sp:ok:<request_id>"`, `CB_SPAWN_DENY = "sp:no:<request_id>"`
-- [ ] register spawn callbacks via `handlers/callback_registry.py` self-registration pattern
-- [ ] wire into CLI `spawn` subcommand
-- [ ] run `make fmt && make test && make lint` — must pass
+- [x] register spawn callbacks via `handlers/callback_registry.py` self-registration pattern
+- [x] wire into CLI `spawn` subcommand
+- [x] run `make fmt && make test && make lint` — must pass
 
 ### Task 9: Skill auto-installation
 

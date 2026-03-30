@@ -386,6 +386,75 @@ def register_cmd(task: str | None, team: str | None) -> None:
     click.echo(f"Registered {', '.join(parts)}")
 
 
+@msg_group.command("spawn")
+@click.option("--provider", "-p", default="claude", help="Provider for the new agent.")
+@click.option("--cwd", "-d", default=None, help="Working directory for the new agent.")
+@click.option("--prompt", required=True, help="Initial prompt for the new agent.")
+@click.option(
+    "--context",
+    "context_file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Context file to attach to the spawn.",
+)
+@click.option("--auto", is_flag=True, help="Bypass approval (respects rate limits).")
+def spawn_cmd(
+    provider: str,
+    cwd: str | None,
+    prompt: str,
+    context_file: str | None,
+    auto: bool,
+) -> None:
+    """Request spawning a new agent window."""
+    from .handlers.msg_spawn import (
+        check_max_windows,
+        check_spawn_rate,
+        create_spawn_request,
+        record_spawn,
+    )
+
+    my_id = _get_my_window_id()
+    window_states = _load_window_states()
+
+    max_windows = int(os.environ.get("CCGRAM_MSG_MAX_WINDOWS", "10"))
+    if not check_max_windows(window_states, max_windows):
+        click.echo(
+            f"Error: max windows reached ({max_windows})",
+            err=True,
+        )
+        sys.exit(1)
+
+    spawn_rate = int(os.environ.get("CCGRAM_MSG_SPAWN_RATE", "3"))
+    if not check_spawn_rate(my_id, spawn_rate):
+        click.echo(
+            f"Error: spawn rate limit exceeded ({spawn_rate} per hour)",
+            err=True,
+        )
+        sys.exit(1)
+
+    work_dir = cwd or os.getcwd()
+
+    try:
+        req = create_spawn_request(
+            requester_window=my_id,
+            provider=provider,
+            cwd=work_dir,
+            prompt=prompt,
+            context_file=context_file,
+            auto=auto,
+        )
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    record_spawn(my_id)
+
+    if auto:
+        click.echo(f"Spawn request {req.id} created (auto-approve mode)")
+    else:
+        click.echo(f"Spawn request {req.id} created (awaiting Telegram approval)")
+
+
 @msg_group.command("sweep")
 def sweep_cmd() -> None:
     """Clean up expired and old messages."""

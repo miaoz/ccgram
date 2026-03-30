@@ -113,6 +113,7 @@ def load_handlers() -> None:
         directory_callbacks,
         history_callbacks,
         interactive_callbacks,
+        msg_spawn,
         msg_telegram,
         recovery_callbacks,
         resume_command,

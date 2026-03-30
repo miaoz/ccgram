@@ -558,3 +558,79 @@ class TestWindowSelfIdentification:
         result = runner.invoke(cli, ["msg", "inbox"])
         assert result.exit_code != 0
         assert "not in a tmux session" in result.output
+
+
+class TestSpawnCmd:
+    def test_spawn_help(self, runner: CliRunner):
+        result = runner.invoke(cli, ["msg", "spawn", "--help"])
+        assert result.exit_code == 0
+        assert "--provider" in result.output
+        assert "--prompt" in result.output
+        assert "--auto" in result.output
+
+    def test_spawn_basic(self, runner: CliRunner, tmp_path: Path):
+        result = runner.invoke(
+            cli, ["msg", "spawn", "--prompt", "review auth", "--cwd", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        assert "Spawn request" in result.output
+        assert "awaiting Telegram approval" in result.output
+
+    def test_spawn_auto_mode(self, runner: CliRunner, tmp_path: Path):
+        result = runner.invoke(
+            cli,
+            ["msg", "spawn", "--prompt", "test", "--cwd", str(tmp_path), "--auto"],
+        )
+        assert result.exit_code == 0
+        assert "auto-approve" in result.output
+
+    def test_spawn_bad_cwd(self, runner: CliRunner, tmp_path: Path):
+        bad_path = str(tmp_path / "nonexistent")
+        result = runner.invoke(
+            cli, ["msg", "spawn", "--prompt", "test", "--cwd", bad_path]
+        )
+        assert result.exit_code != 0
+        assert "does not exist" in result.output
+
+    def test_spawn_max_windows_exceeded(
+        self,
+        runner: CliRunner,
+        state_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setenv("CCGRAM_MSG_MAX_WINDOWS", "2")
+        _write_state(
+            state_dir,
+            {"@0": {"cwd": "/a"}, "@1": {"cwd": "/b"}},
+        )
+        result = runner.invoke(
+            cli, ["msg", "spawn", "--prompt", "test", "--cwd", str(tmp_path)]
+        )
+        assert result.exit_code != 0
+        assert "max windows" in result.output
+
+    def test_spawn_rate_limit_exceeded(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        from ccgram.handlers.msg_spawn import reset_spawn_state
+
+        reset_spawn_state()
+        monkeypatch.setenv("CCGRAM_MSG_SPAWN_RATE", "1")
+        result1 = runner.invoke(
+            cli, ["msg", "spawn", "--prompt", "first", "--cwd", str(tmp_path)]
+        )
+        assert result1.exit_code == 0
+        result2 = runner.invoke(
+            cli, ["msg", "spawn", "--prompt", "second", "--cwd", str(tmp_path)]
+        )
+        assert result2.exit_code != 0
+        assert "spawn rate limit" in result2.output
+
+    def test_spawn_appears_in_msg_help(self, runner: CliRunner):
+        result = runner.invoke(cli, ["msg", "--help"])
+        assert result.exit_code == 0
+        assert "spawn" in result.output
