@@ -1056,7 +1056,7 @@ class TmuxManager:
                 qualified_id = f"{self.session_name}:{new_window_id}"
                 if pane and new_window_id:
                     pane.send_keys(
-                        f"export CCGRAM_WINDOW_ID={qualified_id}",
+                        f"export CCGRAM_WINDOW_ID='{qualified_id}'",
                         enter=True,
                     )
 

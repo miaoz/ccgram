@@ -134,7 +134,7 @@ def _check_rate_limit(mailbox: Mailbox, window_id: str, limit: int) -> bool:
                 continue
             if msg.from_id == window_id:
                 try:
-                    ts = float(msg.id.split("-")[0])
+                    ts = float(msg.id.split("-")[0]) / 1e9
                 except ValueError, IndexError:
                     continue
                 if ts >= cutoff:
@@ -421,7 +421,6 @@ def spawn_cmd(
         check_max_windows,
         check_spawn_rate,
         create_spawn_request,
-        record_spawn,
     )
 
     my_id = _get_my_window_id()
@@ -457,8 +456,6 @@ def spawn_cmd(
     except ValueError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
-
-    record_spawn(my_id)
 
     if auto:
         click.echo(f"Spawn request {req.id} created (auto-approve mode)")

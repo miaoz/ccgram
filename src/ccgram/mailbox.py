@@ -382,6 +382,24 @@ class Mailbox:
             return 1
         return 0
 
+    def clear_inbox(self, window_id: str) -> int:
+        """Remove all messages from a window's inbox (regardless of status).
+
+        Used on topic close to prevent orphaned messages being delivered
+        to a future window that reuses the same ID.
+        """
+        inbox_dir = self._inbox_dir(window_id)
+        if not inbox_dir.is_dir():
+            return 0
+        removed = 0
+        for entry in os.scandir(str(inbox_dir)):
+            if not entry.name.endswith(".json") or entry.is_dir():
+                continue
+            with contextlib.suppress(OSError):
+                os.unlink(entry.path)
+                removed += 1
+        return removed
+
     def migrate_ids(self, old_to_new: dict[str, str]) -> None:
         """Rename mailbox directories when window IDs are remapped."""
         for old_id, new_id in old_to_new.items():

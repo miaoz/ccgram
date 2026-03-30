@@ -8,7 +8,6 @@ from ccgram.handlers.msg_spawn import (
     CB_SPAWN_APPROVE,
     CB_SPAWN_DENY,
     _pending_requests,
-    _spawn_rate_tracker,
     check_max_windows,
     check_spawn_rate,
     clear_spawn_state,
@@ -21,10 +20,13 @@ from ccgram.handlers.msg_spawn import (
 
 
 @pytest.fixture(autouse=True)
-def _clean_state():
-    reset_spawn_state()
-    yield
-    reset_spawn_state()
+def _clean_state(tmp_path: Path):
+    with patch(
+        "ccgram.handlers.msg_spawn._spawns_dir", return_value=tmp_path / "spawns"
+    ):
+        reset_spawn_state()
+        yield
+        reset_spawn_state()
 
 
 class TestSpawnRequestCreation:
@@ -124,8 +126,10 @@ class TestSpawnRateLimiting:
         assert check_spawn_rate("ccgram:@5", max_rate=3)
 
     def test_old_spawns_expire(self):
-        now = time.monotonic()
-        _spawn_rate_tracker["ccgram:@0"] = [now - 4000, now - 3700, now - 3500]
+        from ccgram.handlers.msg_spawn import _save_spawn_log
+
+        now = time.time()
+        _save_spawn_log({"ccgram:@0": [now - 4000, now - 3700, now - 3500]})
         assert check_spawn_rate("ccgram:@0", max_rate=3)
 
 
@@ -195,7 +199,9 @@ class TestApprovalFlow:
             mock_sm.get_window_state.return_value = MagicMock(cwd="", provider_name="")
             await handle_spawn_approval(spawn_request.id, mock_bot)
 
-        mock_sm.set_window_provider.assert_called_once_with("@7", "claude")
+        mock_sm.set_window_provider.assert_called_once_with(
+            "@7", "claude", cwd=str(tmp_path)
+        )
 
     async def test_approve_window_creation_failure(self, mock_bot, spawn_request):
         mock_tmux = AsyncMock()
@@ -312,10 +318,10 @@ class TestContextBootstrap:
             result = await handle_spawn_approval(req.id, mock_bot)
 
         assert result is not None
-        send_keys_call = mock_tmux.send_keys_to_window.call_args
-        if send_keys_call:
-            sent_text = send_keys_call[0][1]
-            assert "context.md" in sent_text or "use this context" in sent_text
+        mock_tmux.send_keys.assert_called()
+        sent_text = mock_tmux.send_keys.call_args[0][1]
+        assert "context.md" in sent_text
+        assert "use this context" in sent_text
 
 
 class TestCallbackConstants:

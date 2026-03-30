@@ -45,7 +45,7 @@ class TestMessageDeliveryStrategy:
     def test_get_state_creates_new(self):
         state = self.strategy.get_state("ccgram:@0")
         assert isinstance(state, DeliveryState)
-        assert state.last_delivery_time == 0.0
+        assert state.delivery_timestamps == []
 
     def test_get_state_returns_same_instance(self):
         s1 = self.strategy.get_state("ccgram:@0")
@@ -89,7 +89,7 @@ class TestRateLimiting:
         self.strategy.record_delivery("ccgram:@0")
         state = self.strategy.get_state("ccgram:@0")
         assert len(state.delivery_timestamps) == 1
-        assert state.last_delivery_time > 0
+        assert state.delivery_timestamps[0] > 0
 
 
 class TestLoopDetection:
@@ -207,7 +207,8 @@ class TestFormatInjectionText:
             body="hello",
             msg_type="notify",
         )
-        assert ": hello" not in text or "svc)]" in text
+        assert "svc)]" in text
+        assert text.count(":") == 1  # only the colon in "ccgram:@0"
 
 
 class TestFormatFileReference:
@@ -243,38 +244,42 @@ class TestWriteDeliveryFile:
 class TestCollectEligible:
     def test_returns_pending_non_broadcast(self, mailbox):
         mailbox.send("ccgram:@0", "ccgram:@5", "hello", msg_type="request")
-        eligible = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
+        eligible, loops = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
         assert len(eligible) == 1
         assert eligible[0].type == "request"
+        assert loops == []
 
     def test_skips_broadcast(self, mailbox):
         mailbox.send("ccgram:@0", "ccgram:@5", "broadcast msg", msg_type="broadcast")
-        eligible = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
+        eligible, _loops = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
         assert len(eligible) == 0
 
     def test_skips_paused_peer(self, mailbox):
         mailbox.send("ccgram:@0", "ccgram:@5", "hello", msg_type="request")
         delivery_strategy.pause_peer("ccgram:@5", "ccgram:@0")
-        eligible = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
+        eligible, _loops = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
         assert len(eligible) == 0
 
     def test_respects_rate_limit(self, mailbox):
         mailbox.send("ccgram:@0", "ccgram:@5", "hello", msg_type="request")
         for _ in range(10):
             delivery_strategy.record_delivery("ccgram:@5")
-        eligible = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
+        eligible, _loops = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
         assert len(eligible) == 0
 
     def test_loop_detection_pauses_peer(self, mailbox):
         mailbox.send("ccgram:@0", "ccgram:@5", "hello", msg_type="request")
         for _ in range(_LOOP_THRESHOLD):
             delivery_strategy.record_exchange("ccgram:@5", "ccgram:@0")
-        eligible = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
+        eligible, loops = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
         assert len(eligible) == 0
+        assert len(loops) == 1
+        assert loops[0] == ("ccgram:@5", "ccgram:@0")
 
     def test_empty_inbox(self, mailbox):
-        eligible = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
+        eligible, loops = _collect_eligible(mailbox, "ccgram:@5", msg_rate_limit=10)
         assert eligible == []
+        assert loops == []
 
 
 class TestBrokerDeliveryCycle:

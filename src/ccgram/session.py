@@ -499,9 +499,12 @@ class SessionManager:
         offsets_changed = self.prune_stale_offsets(all_known)
 
         # Prune dead mailbox directories
-        qualified_live = {
-            f"{config.tmux_session_name}:{wid}" for wid in live_window_ids
-        }
+        qualified_live: set[str] = set()
+        for wid in live_window_ids:
+            if is_foreign_window(wid):
+                qualified_live.add(wid)
+            else:
+                qualified_live.add(f"{config.tmux_session_name}:{wid}")
         from .mailbox import Mailbox
 
         Mailbox(config.mailbox_dir).prune_dead(qualified_live)

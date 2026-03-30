@@ -38,6 +38,7 @@ def state_dir(tmp_path: Path) -> Path:
 def _patch_dirs(state_dir: Path, mailbox_dir: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("ccgram.msg_cmd.ccgram_dir", lambda: state_dir)
     monkeypatch.setattr("ccgram.msg_cmd._get_mailbox_dir", lambda: mailbox_dir)
+    monkeypatch.setattr("ccgram.handlers.msg_spawn.ccgram_dir", lambda: state_dir)
     monkeypatch.setenv("CCGRAM_WINDOW_ID", "ccgram:@0")
 
 

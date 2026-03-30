@@ -22,14 +22,6 @@ logger = structlog.get_logger()
 
 
 @dataclass
-class DeclaredInfo:
-    """Self-declared overlay fields for a window."""
-
-    task: str = ""
-    team: str = ""
-
-
-@dataclass
 class PeerInfo:
     """Merged view of a peer agent window."""
 

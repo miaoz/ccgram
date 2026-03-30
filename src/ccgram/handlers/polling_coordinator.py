@@ -79,10 +79,8 @@ logger = structlog.get_logger()
 STATUS_POLL_INTERVAL = 1.0  # seconds
 TOPIC_CHECK_INTERVAL = 60.0  # seconds
 
-# Broker delivery cycle interval (seconds)
+# Must match msg_broker.BROKER_CYCLE_INTERVAL / SWEEP_INTERVAL.
 _BROKER_CYCLE_INTERVAL = 2.0
-
-# Mailbox sweep interval (seconds)
 _SWEEP_INTERVAL = 300.0
 
 # Exponential backoff bounds for loop errors (seconds)

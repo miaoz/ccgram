@@ -82,7 +82,9 @@ async def clear_topic_state(
         from ..msg_discovery import clear_declared
 
         qualified_id = f"{config.tmux_session_name}:{window_id}"
-        Mailbox(config.mailbox_dir).sweep(qualified_id)
+        mb = Mailbox(config.mailbox_dir)
+        mb.sweep(qualified_id)
+        mb.clear_inbox(qualified_id)
         clear_declared(qualified_id)
 
     # Clear interactive UI state (also deletes message from chat)

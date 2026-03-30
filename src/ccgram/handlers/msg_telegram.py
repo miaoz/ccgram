@@ -38,15 +38,18 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 # Callback data prefixes for loop alert buttons
-CB_MSG_LOOP_PAUSE = "ml:pause:"
-CB_MSG_LOOP_ALLOW = "ml:allow:"
+CB_MSG_LOOP_PAUSE = "ml:p:"
+CB_MSG_LOOP_ALLOW = "ml:a:"
 
 _WINDOW_KEY_PARTS = 2
-_PAIR_KEY_PARTS = 2
 
 _SUBJECT_MAX_LEN = 40
 _BODY_PREVIEW_LEN = 100
 _MAX_DISPLAYED_RECIPIENTS = 5
+
+# Map short hash ��� (window_a, window_b) for loop alert callback data.
+# Telegram limits callback_data to 64 bytes; qualified IDs can be long.
+_loop_alert_pairs: dict[str, tuple[str, str]] = {}
 
 
 def _extract_window_id(qualified_id: str) -> str:
@@ -308,7 +311,10 @@ async def notify_loop_detected(
     """Alert that a messaging loop was detected, with control buttons.
 
     Posts in the topic of window_a with [Pause Messaging] [Allow 5 more].
+    Uses a short hash in callback_data to stay within Telegram's 64-byte limit.
     """
+    import hashlib
+
     topic = _resolve_topic(window_a)
     if topic is None:
         return
@@ -319,7 +325,10 @@ async def notify_loop_detected(
     wid_a = _extract_window_id(window_a)
     wid_b = _extract_window_id(window_b)
 
-    pair_key = f"{window_a}|{window_b}"
+    # Hash the pair to fit within 64-byte callback_data limit
+    pair_full = f"{window_a}|{window_b}"
+    pair_hash = hashlib.md5(pair_full.encode()).hexdigest()[:12]  # noqa: S324
+    _loop_alert_pairs[pair_hash] = (window_a, window_b)
 
     text = (
         f"\u26a0 Messaging loop detected between"
@@ -331,11 +340,11 @@ async def notify_loop_detected(
             [
                 InlineKeyboardButton(
                     "Pause Messaging",
-                    callback_data=f"{CB_MSG_LOOP_PAUSE}{pair_key}",
+                    callback_data=f"{CB_MSG_LOOP_PAUSE}{pair_hash}",
                 ),
                 InlineKeyboardButton(
                     "Allow 5 more",
-                    callback_data=f"{CB_MSG_LOOP_ALLOW}{pair_key}",
+                    callback_data=f"{CB_MSG_LOOP_ALLOW}{pair_hash}",
                 ),
             ]
         ]
@@ -368,17 +377,17 @@ async def _handle_loop_alert(
 
     data = query.data
     if data.startswith(CB_MSG_LOOP_PAUSE):
-        pair_key = data[len(CB_MSG_LOOP_PAUSE) :]
-        parts = pair_key.split("|", 1)
-        if len(parts) == _PAIR_KEY_PARTS:
-            delivery_strategy.pause_peer(parts[0], parts[1])
-            delivery_strategy.pause_peer(parts[1], parts[0])
+        pair_hash = data[len(CB_MSG_LOOP_PAUSE) :]
+        pair = _loop_alert_pairs.get(pair_hash)
+        if pair:
+            delivery_strategy.pause_peer(pair[0], pair[1])
+            delivery_strategy.pause_peer(pair[1], pair[0])
         await _safe_edit_text(query, "\u23f8 Messaging paused between these windows")
     elif data.startswith(CB_MSG_LOOP_ALLOW):
-        pair_key = data[len(CB_MSG_LOOP_ALLOW) :]
-        parts = pair_key.split("|", 1)
-        if len(parts) == _PAIR_KEY_PARTS:
-            delivery_strategy.allow_more(parts[0], parts[1])
+        pair_hash = data[len(CB_MSG_LOOP_ALLOW) :]
+        pair = _loop_alert_pairs.get(pair_hash)
+        if pair:
+            delivery_strategy.allow_more(pair[0], pair[1])
         await _safe_edit_text(query, "\u25b6 Allowing 5 more exchanges")
 
 

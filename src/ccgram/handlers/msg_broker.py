@@ -55,10 +55,10 @@ SWEEP_INTERVAL = 300.0
 class DeliveryState:
     """Per-window delivery tracking state."""
 
-    last_delivery_time: float = 0.0
     delivery_timestamps: list[float] = field(default_factory=list)
     loop_counts: dict[str, list[float]] = field(default_factory=dict)
     paused_peers: set[str] = field(default_factory=set)
+    notified_shell_ids: set[str] = field(default_factory=set)
 
 
 class MessageDeliveryStrategy:
@@ -92,7 +92,6 @@ class MessageDeliveryStrategy:
         """Record a delivery timestamp for rate limiting."""
         state = self.get_state(window_id)
         state.delivery_timestamps.append(time.monotonic())
-        state.last_delivery_time = time.monotonic()
 
     def check_loop(self, window_a: str, window_b: str) -> bool:
         """Return True if a messaging loop is detected between two windows.
@@ -228,15 +227,17 @@ def write_delivery_file(
 
 def _collect_eligible(
     mailbox: "Mailbox", qualified_id: str, msg_rate_limit: int
-) -> list["Message"]:
+) -> tuple[list["Message"], list[tuple[str, str]]]:
     """Collect eligible pending messages for a window.
 
     Filters out broadcasts, paused peers, and applies rate limiting
     and loop detection.
+
+    Returns (eligible_messages, detected_loop_pairs).
     """
     pending = mailbox.inbox(qualified_id)
     if not pending:
-        return []
+        return [], []
 
     eligible = [
         m
@@ -246,24 +247,27 @@ def _collect_eligible(
         and not delivery_strategy.is_paused(qualified_id, m.from_id)
     ]
     if not eligible:
-        return []
+        return [], []
 
     if not delivery_strategy.check_rate_limit(qualified_id, msg_rate_limit):
         logger.debug("Rate limit reached for window", window_id=qualified_id)
-        return []
+        return [], []
 
+    loops: list[tuple[str, str]] = []
     for msg in eligible:
         if delivery_strategy.check_loop(qualified_id, msg.from_id):
             delivery_strategy.pause_peer(qualified_id, msg.from_id)
+            loops.append((qualified_id, msg.from_id))
             logger.warning(
                 "Loop detected, pausing delivery",
                 window_a=qualified_id,
                 window_b=msg.from_id,
             )
 
-    return [
+    filtered = [
         m for m in eligible if not delivery_strategy.is_paused(qualified_id, m.from_id)
     ]
+    return filtered, loops
 
 
 def _format_for_delivery(msg: "Message", mailbox_dir: Path, qualified_id: str) -> str:
@@ -301,18 +305,28 @@ async def broker_delivery_cycle(
     delivered messages, shell-pending messages, and loop detection.
     """
     from ..providers import get_provider_for_window
+    from ..window_resolver import is_foreign_window
 
     delivered_count = 0
 
     for window_id in list(window_states):
-        qualified_id = f"{tmux_session}:{window_id}"
+        # Foreign windows (emdash) are already fully qualified
+        if is_foreign_window(window_id):
+            qualified_id = window_id
+        else:
+            qualified_id = f"{tmux_session}:{window_id}"
 
         provider = get_provider_for_window(window_id)
         if provider.capabilities.name == "shell":
             await _notify_shell_pending(bot, mailbox, qualified_id)
             continue
 
-        to_deliver = _collect_eligible(mailbox, qualified_id, msg_rate_limit)
+        to_deliver, loops = _collect_eligible(mailbox, qualified_id, msg_rate_limit)
+
+        # Notify Telegram about detected loops
+        for window_a, window_b in loops:
+            await _notify_loop(bot, window_a, window_b)
+
         if not to_deliver:
             continue
 
@@ -333,6 +347,10 @@ async def broker_delivery_cycle(
             )
             await _notify_delivered(bot, qualified_id, to_deliver)
 
+    # Process pending spawn requests
+    if bot is not None:
+        await _process_spawn_requests(bot)
+
     return delivered_count
 
 
@@ -350,20 +368,58 @@ async def _notify_delivered(
         logger.debug("Failed to send delivery notification", window=to_window)
 
 
+async def _notify_loop(bot: "Bot | None", window_a: str, window_b: str) -> None:
+    """Send Telegram loop detection alert (if bot available)."""
+    if bot is None:
+        return
+    from .msg_telegram import notify_loop_detected
+
+    try:
+        await notify_loop_detected(bot, window_a, window_b)
+    except OSError, TelegramError:
+        logger.debug("Failed to send loop alert", window_a=window_a, window_b=window_b)
+
+
 async def _notify_shell_pending(
     bot: "Bot | None", mailbox: "Mailbox", qualified_id: str
 ) -> None:
-    """Notify shell topics about pending messages (if bot available)."""
+    """Notify shell topics about pending messages (if bot available).
+
+    Marks messages as delivered after first notification to prevent
+    repeated notifications every broker cycle.
+    """
     if bot is None:
         return
     from .msg_telegram import notify_pending_shell
 
+    state = delivery_strategy.get_state(qualified_id)
     pending = mailbox.inbox(qualified_id)
     for msg in pending:
-        if msg.status == "pending":
+        if msg.status == "pending" and msg.id not in state.notified_shell_ids:
             try:
                 await notify_pending_shell(bot, qualified_id, msg)
+                state.notified_shell_ids.add(msg.id)
+                mailbox.mark_delivered(msg.id, qualified_id)
             except OSError, TelegramError:
                 logger.debug(
                     "Failed to send shell pending notification", window=qualified_id
                 )
+
+
+async def _process_spawn_requests(bot: "Bot") -> None:
+    """Scan for file-based spawn requests and post approval keyboards or auto-approve."""
+    from .msg_spawn import (
+        handle_spawn_approval,
+        post_spawn_approval_keyboard,
+        scan_spawn_requests,
+    )
+
+    new_requests = scan_spawn_requests()
+    for req in new_requests:
+        try:
+            if req.auto:
+                await handle_spawn_approval(req.id, bot)
+            else:
+                await post_spawn_approval_keyboard(bot, req.requester_window, req)
+        except OSError, TelegramError:
+            logger.debug("Failed to process spawn request", request_id=req.id)
