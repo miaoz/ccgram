@@ -396,16 +396,16 @@ Migrate modules that use `window_id` key.
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] verify all 4 review issues addressed:
+- [x] verify all 4 review issues addressed:
   - No private imports across messaging modules (`_sanitize_dir_name`, `_pending_requests`, `_resolve_topic`, `_collect_target_chats`, `_create_topic_in_chat` all promoted or replaced)
   - `msg_broker ↔ msg_telegram` circular dependency broken (delivery_strategy in `msg_delivery.py`)
   - SessionManager narrowed: 9 pass-throughs removed, UserPreferences extracted, Protocols defined
   - cleanup.py uses TopicStateRegistry (14 lazy imports → 1 registry call)
   - Polling: TopicLifecycleStrategy uses public methods, coordinator uses public constants
-- [ ] verify no circular imports: `python -c "from ccgram.handlers.msg_broker import delivery_strategy; from ccgram.handlers.msg_telegram import resolve_topic"`
-- [ ] run full test suite: `make test`
-- [ ] run integration tests: `make test-integration`
-- [ ] run `make check` — all GREEN
+- [x] verify no circular imports: `python -c "from ccgram.handlers.msg_broker import delivery_strategy; from ccgram.handlers.msg_telegram import resolve_topic"`
+- [x] run full test suite: `make test`
+- [x] run integration tests: `make test-integration`
+- [x] run `make check` — all GREEN
 
 ### Task 11: [Final] Update documentation
 
