@@ -83,12 +83,12 @@ Design doc: `docs/design/mailbox/design.md`
 
 `msg_broker.py` line 224 imports `_sanitize_dir_name` and `_validate_no_traversal` from `mailbox.py` — private functions encoding internal directory structure.
 
-- [ ] `mailbox.py` (line 95): rename `_sanitize_dir_name` → `sanitize_dir_name`; add backward compat alias `_sanitize_dir_name = sanitize_dir_name`
-- [ ] `mailbox.py` (line 89): rename `_validate_no_traversal` → `validate_no_traversal`; add alias `_validate_no_traversal = validate_no_traversal`
-- [ ] `handlers/msg_broker.py` (line 224): change import from `_sanitize_dir_name, _validate_no_traversal` → `sanitize_dir_name, validate_no_traversal`
-- [ ] `tests/ccgram/test_mailbox.py`: update import of `_sanitize_dir_name` → `sanitize_dir_name`
-- [ ] write/update tests: `test_sanitize_dir_name_handles_colons`, `test_validate_no_traversal_rejects_dotdot`
-- [ ] `make check` — must pass
+- [x] `mailbox.py` (line 95): rename `_sanitize_dir_name` → `sanitize_dir_name`; add backward compat alias `_sanitize_dir_name = sanitize_dir_name`
+- [x] `mailbox.py` (line 89): rename `_validate_no_traversal` → `validate_no_traversal`; add alias `_validate_no_traversal = validate_no_traversal`
+- [x] `handlers/msg_broker.py` (line 224): change import from `_sanitize_dir_name, _validate_no_traversal` → `sanitize_dir_name, validate_no_traversal`
+- [x] `tests/ccgram/test_mailbox.py`: update import of `_sanitize_dir_name` → `sanitize_dir_name`
+- [x] write/update tests: `test_sanitize_dir_name_handles_colons`, `test_validate_no_traversal_rejects_dotdot`
+- [x] `make check` — must pass
 
 ---
 

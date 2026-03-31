@@ -11,7 +11,8 @@ from ccgram.mailbox import (
     Message,
     _DEFAULT_TTL,
     _BODY_SIZE_LIMIT,
-    _sanitize_dir_name,
+    sanitize_dir_name,
+    validate_no_traversal,
     _unsanitize_dir_name,
 )
 
@@ -23,17 +24,32 @@ def mailbox(tmp_path: Path) -> Mailbox:
 
 class TestSanitizeDirName:
     def test_replaces_colon_with_equals(self):
-        assert _sanitize_dir_name("ccgram:@0") == "ccgram=@0"
+        assert sanitize_dir_name("ccgram:@0") == "ccgram=@0"
 
     def test_handles_emdash_qualified_id(self):
         assert (
-            _sanitize_dir_name("emdash-claude-main-abc:@0")
+            sanitize_dir_name("emdash-claude-main-abc:@0")
             == "emdash-claude-main-abc=@0"
         )
 
     def test_roundtrip(self):
         original = "ccgram:@12"
-        assert _unsanitize_dir_name(_sanitize_dir_name(original)) == original
+        assert _unsanitize_dir_name(sanitize_dir_name(original)) == original
+
+    def test_sanitize_dir_name_handles_colons(self):
+        assert sanitize_dir_name("session:@5") == "session=@5"
+
+    def test_validate_no_traversal_rejects_dotdot(self):
+        with pytest.raises(ValueError, match="must not contain"):
+            validate_no_traversal("../etc", "test")
+
+    def test_validate_no_traversal_rejects_slash(self):
+        with pytest.raises(ValueError, match="must not contain"):
+            validate_no_traversal("foo/bar", "test")
+
+    def test_validate_no_traversal_accepts_clean(self):
+        validate_no_traversal("ccgram", "test")
+        validate_no_traversal("@0", "test")
 
 
 class TestMessage:

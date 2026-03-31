@@ -86,13 +86,16 @@ class Message:
         return elapsed.total_seconds() > self.ttl_minutes * 60
 
 
-def _validate_no_traversal(value: str, label: str) -> None:
+def validate_no_traversal(value: str, label: str) -> None:
     """Reject values containing path traversal sequences."""
     if ".." in value or "/" in value or "\\" in value:
         raise ValueError(f"Invalid {label}: must not contain path separators or '..'")
 
 
-def _sanitize_dir_name(qualified_id: str) -> str:
+_validate_no_traversal = validate_no_traversal
+
+
+def sanitize_dir_name(qualified_id: str) -> str:
     """Convert a qualified window ID to a safe directory name.
 
     Replaces colons with ``=`` so that IDs like ``ccgram:@0`` become
@@ -100,12 +103,15 @@ def _sanitize_dir_name(qualified_id: str) -> str:
     """
     parts = qualified_id.split(":", 1)
     for part in parts:
-        _validate_no_traversal(part, "window ID")
+        validate_no_traversal(part, "window ID")
     return "=".join(parts)
 
 
+_sanitize_dir_name = sanitize_dir_name
+
+
 def _unsanitize_dir_name(dir_name: str) -> str:
-    """Reverse ``_sanitize_dir_name``: ``ccgram=@0`` → ``ccgram:@0``.
+    """Reverse ``sanitize_dir_name``: ``ccgram=@0`` → ``ccgram:@0``.
 
     Only the first ``=`` is reversed (session:window split).
     """
@@ -158,7 +164,7 @@ class Mailbox:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _inbox_dir(self, window_id: str) -> Path:
-        return self.base_dir / _sanitize_dir_name(window_id)
+        return self.base_dir / sanitize_dir_name(window_id)
 
     def send(
         self,
@@ -547,7 +553,7 @@ class Mailbox:
     def _find_message(
         self, msg_id: str, window_id: str
     ) -> tuple[Message | None, Path | None]:
-        _validate_no_traversal(msg_id, "message ID")
+        validate_no_traversal(msg_id, "message ID")
         inbox_dir = self._inbox_dir(window_id)
         msg_path = inbox_dir / f"{msg_id}.json"
         if not msg_path.is_file():
