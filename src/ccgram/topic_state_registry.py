@@ -90,7 +90,15 @@ class TopicStateRegistry:
 def _safe_call(fn: Callable, *args: object) -> None:
     try:
         fn(*args)
-    except OSError, ValueError, KeyError, TypeError, RuntimeError, AttributeError:
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        RuntimeError,
+        AttributeError,
+        ImportError,
+    ):
         name = getattr(fn, "__qualname__", repr(fn))
         logger.warning("cleanup_function_failed", fn=name, exc_info=True)
 
