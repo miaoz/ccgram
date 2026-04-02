@@ -112,6 +112,15 @@ Each Telegram Forum topic binds to one tmux window running an agent CLI. Message
 - BYOK LLM — supports OpenAI, Anthropic, xAI, DeepSeek, Groq, Ollama (zero new dependencies)
 - See **[docs/providers.md](docs/providers.md#shell)** for LLM configuration
 
+**Inter-agent messaging (swarm)**
+
+- Agents discover each other, exchange messages, broadcast notifications, and spawn new agents
+- File-based mailbox (`~/.ccgram/mailbox/`) — no database, no daemon
+- Broker delivers pending messages to idle agent windows automatically
+- Telegram visibility — silent notifications in sender/recipient topics
+- Spawn approval — agents request new instances, user approves via Telegram
+- See **[docs/guides.md](docs/guides.md#inter-agent-messaging)** for setup and usage
+
 **Extensibility**
 
 - Global Telegram menu includes bot commands + default provider commands (with `↗` prefix); provider-scoped menus auto-refresh per chat/user/topic context with Telegram-scope fallbacks

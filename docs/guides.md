@@ -20,6 +20,9 @@ ccgram hook --uninstall       # Remove all hooks
 ccgram hook --status          # Check per-event hook installation status
 ccgram --version              # Show version
 ccgram -v                     # Run with debug logging
+ccgram msg send <to> <body>   # Send inter-agent message
+ccgram msg inbox              # Check incoming messages
+ccgram msg list-peers         # Show active agent windows
 ```
 
 ## Local Dev in tmux
@@ -271,6 +274,120 @@ When an agent session exits or crashes, the bot detects the dead window and offe
 
 The buttons shown adapt to each provider's capabilities. Claude, Codex, and Gemini support Fresh, Continue, and Resume. Shell supports Fresh only (shell sessions are ephemeral).
 
+## Inter-Agent Messaging
+
+Agents running in tmux windows can discover each other, exchange messages, broadcast notifications, and spawn new agents — with human oversight via Telegram.
+
+### How It Works
+
+```
+Agent A (claude, @0)              ccgram bot                    Agent B (claude, @3)
+────────────────────              ──────────                    ────────────────────
+ccgram msg send                   Writes JSON to                Broker detects B is
+  ccgram:@3 "help"  ──────────►  ~/.ccgram/mailbox/@3/  ────►  idle, injects message
+                                  Telegram: silent notif         via send_keys
+                                  in both topics
+                                                                B reads message,
+ccgram msg reply                                                runs ccgram msg reply
+  <msg-id> "done"   ◄──────────  Broker delivers reply  ◄────  <msg-id> "done"
+```
+
+1. **Sender** calls `ccgram msg send` — writes a JSON message to the recipient's mailbox
+2. **Broker** (inside the ccgram bot) polls mailboxes, waits for the recipient to go idle, then injects the message text via `send_keys`
+3. **Recipient** sees the injected message and can reply with `ccgram msg reply`
+4. **Telegram** shows silent notifications in both topics so you can monitor the conversation
+
+### Messaging Skill (Auto-Installed)
+
+When you create a Claude window through Telegram (directory browser or spawn), ccgram auto-installs a skill file at `{project}/.claude/skills/ccgram-messaging/SKILL.md`. This teaches the agent about the messaging CLI commands.
+
+The skill instructs agents to:
+
+- Register themselves on start (`ccgram msg register`)
+- Check their inbox when idle (`ccgram msg inbox`)
+- Ask the user before processing received messages
+- Use `ccgram msg send/reply/broadcast` for collaboration
+
+**Manual installation** — if you need to install the skill for a pre-existing project:
+
+```bash
+# The skill file is created automatically for new Claude windows.
+# For existing projects, copy it from any project that has it:
+cp -r /path/to/project/.claude/skills/ccgram-messaging \
+      ~/your-project/.claude/skills/
+```
+
+Or create it manually at `{project}/.claude/skills/ccgram-messaging/SKILL.md` — see the [skill content](../src/ccgram/msg_skill.py) for the exact template.
+
+### CLI Commands
+
+All commands use the `ccgram msg` subcommand group. Agents call these from their tmux window.
+
+**Discovery:**
+
+```bash
+ccgram msg list-peers [--json]                    # Show all active agent windows
+ccgram msg find --provider claude --team backend  # Filter peers by attributes
+ccgram msg register --task "implement API" --team backend  # Declare task/team for discoverability
+```
+
+**Messaging:**
+
+```bash
+ccgram msg send <to> "message body"               # Send message (async, returns immediately)
+ccgram msg send <to> "question?" --wait            # Send and block until reply (60s timeout)
+ccgram msg send <to> "msg" --subject "API change"  # Include a subject line
+ccgram msg inbox [--json]                          # Check incoming messages
+ccgram msg read <msg-id>                           # Read and mark a message
+ccgram msg reply <msg-id> "response body"          # Reply to a received message
+```
+
+**Broadcasting:**
+
+```bash
+ccgram msg broadcast "status update" --team backend      # Send to all in team
+ccgram msg broadcast "breaking change" --provider claude  # Send to all Claude agents
+```
+
+**Spawning new agents:**
+
+```bash
+ccgram msg spawn --provider claude --cwd ~/project --prompt "implement feature X"
+```
+
+Spawn requests require human approval via a Telegram inline keyboard, unless `CCGRAM_MSG_AUTO_SPAWN=true`.
+
+**Housekeeping:**
+
+```bash
+ccgram msg sweep   # Clean expired messages (TTL-based)
+```
+
+### Self-Identification
+
+Each agent window gets a `CCGRAM_WINDOW_ID` environment variable (e.g., `ccgram:@3`) set automatically when the window is created. This is how `ccgram msg` knows which window it is running in. If the env var is missing (e.g., externally created window), it falls back to `tmux display-message`.
+
+### Peer IDs
+
+Peer IDs use the qualified format `session:@N` (e.g., `ccgram:@0`, `ccgram:@3`). Run `ccgram msg list-peers` to see all available peers and their IDs.
+
+### Configuration
+
+| Setting       | Env Var                    | Default              |
+| ------------- | -------------------------- | -------------------- |
+| Auto-spawn    | `CCGRAM_MSG_AUTO_SPAWN`    | `false`              |
+| Max windows   | `CCGRAM_MSG_MAX_WINDOWS`   | `10`                 |
+| Wait timeout  | `CCGRAM_MSG_WAIT_TIMEOUT`  | `60` (seconds)       |
+| Spawn timeout | `CCGRAM_MSG_SPAWN_TIMEOUT` | `300` (seconds)      |
+| Spawn rate    | `CCGRAM_MSG_SPAWN_RATE`    | `3` (per window/hr)  |
+| Message rate  | `CCGRAM_MSG_RATE_LIMIT`    | `10` (per window/5m) |
+
+### Limitations
+
+- **Claude only** — the messaging skill is auto-installed only for Claude windows. Codex and Gemini agents don't receive the skill (they can still receive messages via the broker, but won't know how to use the CLI).
+- **Shell windows are inbox-only** — shell topics receive Telegram notifications about messages but the broker does not inject text into shell panes.
+- **Delivery requires idle** — for hook-enabled providers (Claude), messages are only injected when the agent goes idle (Stop event). During long-running tool calls, messages queue until the agent finishes.
+
 ## Providers
 
 CCGram supports Claude Code, Codex CLI, Gemini CLI, and Shell. Each topic can use a different provider. See **[docs/providers.md](providers.md)** for full details on each provider, session modes, custom launch commands, LLM configuration, and provider-specific behavior.
@@ -285,6 +402,7 @@ All state files live in `$CCGRAM_DIR` (`~/.ccgram/` by default):
 | `session_map.json`   | Hook-generated window → session mappings                    |
 | `events.jsonl`       | Append-only hook event log (read incrementally by monitor)  |
 | `monitor_state.json` | Byte offsets per session (prevents duplicate notifications) |
+| `mailbox/`           | Inter-agent message inboxes (per-window dirs with JSON)     |
 
 Session transcripts are read from provider-specific locations (read-only): `~/.claude/projects/` (Claude), `~/.codex/sessions/` (Codex), `~/.gemini/tmp/` (Gemini). Shell has no transcript — output is captured directly from the tmux pane. The bot never writes to agent data directories.
 
