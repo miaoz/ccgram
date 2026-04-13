@@ -96,9 +96,10 @@ CB_KEYS_PREFIX = "kb:"  # kb:<key_id>:<window>
 # Remote Control button (status keyboard + toolbar)
 CB_STATUS_REMOTE = "st:rmt:"  # st:rmt:<window_id>
 
-# Toolbar command
-CB_TOOLBAR_CTRLC = "tb:cc:"  # tb:cc:<window_id> — sends Ctrl-C
-CB_TOOLBAR_DISMISS = "tb:x"  # dismiss toolbar message
+# Toolbar — single prefix; the suffix encodes "<window_id>:<action_name>".
+# The action_name is looked up in the loaded ToolbarConfig.actions pool to
+# determine dispatch (key send / text send / builtin handler).
+CB_TOOLBAR = "tb:"  # tb:<window_id>:<action_name>
 
 # Sync command
 CB_SYNC_FIX = "sync:fix"
@@ -116,6 +117,13 @@ CB_SHELL_CONFIRM_DANGER = "sh:dng:"  # sh:dng:<window_id> (dangerous confirm)
 # Live view (auto-refreshing screenshot)
 CB_LIVE_START = "lv:go:"  # lv:go:<target> (window_id or window_id:pane_id)
 CB_LIVE_STOP = "lv:stop:"  # lv:stop:<target>
+
+# /send command file browser
+CB_SEND_FILE = "sf:f:"  # sf:f:<idx> — select file at index
+CB_SEND_DIR = "sf:d:"  # sf:d:<idx> — navigate into dir at index
+CB_SEND_PAGE = "sf:pg:"  # sf:pg:<page> — pagination
+CB_SEND_UP = "sf:up"  # navigate to parent directory
+CB_SEND_CANCEL = "sf:x"  # cancel /send browser
 
 # Idle status sentinel (shared between status_polling and message_queue)
 IDLE_STATUS_TEXT = "\u2713 Ready"

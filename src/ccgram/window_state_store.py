@@ -16,6 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Self
 
+from .state_persistence import unwired_save
+
 logger = structlog.get_logger()
 
 APPROVAL_MODES: frozenset[str] = frozenset({"normal", "yolo"})
@@ -109,7 +111,7 @@ class WindowStateStore:
     window_states: dict[str, WindowState] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        self._schedule_save: Callable[[], None] = lambda: None
+        self._schedule_save: Callable[[], None] = unwired_save("WindowStateStore")
         self._on_hookless_provider_switch: Callable[[str], None] = lambda _wid: None
 
     def reset(self) -> None:
@@ -139,6 +141,19 @@ class WindowStateStore:
         if window_id not in self.window_states:
             self.window_states[window_id] = WindowState()
         return self.window_states[window_id]
+
+    def update_cwd(self, window_id: str, cwd: str) -> None:
+        """Update CWD for a window and schedule persistence."""
+        if window_id in self.window_states:
+            self.window_states[window_id].cwd = cwd
+            self._schedule_save()
+
+    def clear_session_fields(self, window_id: str) -> None:
+        """Clear session_id and cwd for a window (session file gone)."""
+        if window_id in self.window_states:
+            self.window_states[window_id].session_id = ""
+            self.window_states[window_id].cwd = ""
+            self._schedule_save()
 
     def clear_window_session(self, window_id: str) -> None:
         """Clear session association for a window (e.g., after /clear command)."""

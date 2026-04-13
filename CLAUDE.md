@@ -33,6 +33,20 @@ ccgram --autoclose-done 0              # Disable auto-close for done topics
 ccgram --autoclose-dead 0              # Disable auto-close for dead sessions
 ```
 
+Bot commands (in Telegram topics):
+
+```
+/send [pattern]   Send workspace file to Telegram (exact path, glob, or browse)
+/toolbar          Show provider-specific inline action toolbar
+/history          Browse paginated message history
+/sessions         Active sessions dashboard
+/restore          Recover a dead topic
+/resume           Scan past sessions and pick one to resume
+/panes            List panes with per-pane screenshot buttons
+/sync             Sync window state with tmux
+/upgrade          Upgrade ccgram via uv and restart
+```
+
 ## Core Design Constraints
 
 - **1 Topic = 1 Window = 1 Session** — all internal routing keyed by tmux window ID (`@0`, `@12`), not window name. Window names kept as display names. Same directory can have multiple windows.
@@ -147,6 +161,73 @@ The LLM is also used for **completion summaries**: when an agent finishes (Stop 
 | Status poll       | `CCGRAM_STATUS_POLL_INTERVAL` | `1.0` (s) |
 
 Live view and poll intervals are clamped to a minimum of 0.5s (live view: 1s). Live view auto-refreshes terminal screenshots via `editMessageMedia` at the configured interval, and auto-stops after the timeout.
+
+### /send Command — File Delivery
+
+Send workspace files to Telegram. Three modes in one command:
+
+```
+/send docs/arch.png   # Exact path → immediate upload
+/send *.png           # Glob → find matches, pick if multiple
+/send arch            # Substring → search, pick if multiple
+/send                 # No args → interactive file browser at CWD
+```
+
+**Security model** — project-scoped, deny-by-default:
+
+- Path containment: resolved path must stay within window CWD (blocks `../` traversal, symlink escape)
+- Hidden files/dirs: anything starting with `.` is denied
+- Secret patterns: `*.pem`, `*.key`, `*.p12`, `*credential*`, `*secret*`, `.env` etc.
+- Gitleaks: if `.gitleaks.toml` exists, path regexes from `[[rules]]` are enforced
+- Gitignored: `git check-ignore -q` primary, `pathspec` library fallback for non-git repos
+- Size limit: 50 MB (Telegram bot API cap)
+- Excluded dirs: `node_modules`, `__pycache__`, `.venv`, `dist`, `build`, etc. — never shown in browser or search
+
+| Setting      | Env Var                    | Default |
+| ------------ | -------------------------- | ------- |
+| Search depth | `CCGRAM_SEND_SEARCH_DEPTH` | `5`     |
+| Max results  | `CCGRAM_SEND_MAX_RESULTS`  | `50`    |
+
+### Toolbar — Configurable Per-Provider
+
+`/toolbar` shows an inline keyboard whose layout is loaded from a TOML file (or built-in defaults). Each provider has a grid of buttons (any rows × cols, ≤8 cells per row) and a rendering style (`emoji`, `text`, or `emoji_text`).
+
+**Default**: 3×3 grid per provider, `emoji_text` style:
+
+| Provider | Row 1                        | Row 2                    | Row 3                     |
+| -------- | ---------------------------- | ------------------------ | ------------------------- |
+| Claude   | 📷 Screen, ⏹ Ctrl-C, 📺 Live | 🔀 Mode, 💭 Think, ⎋ Esc | 📤 Send, ⏎ Enter, ✖ Close |
+| Codex    | 📷 Screen, ⏹ Ctrl-C, 📺 Live | ⎋ Esc, ⏎ Enter, ⇥ Tab    | 📤 Send, 🔀 Mode, ✖ Close |
+| Gemini   | 📷 Screen, ⏹ Ctrl-C, 📺 Live | 🔀 Mode, 🅨 YOLO, ⎋ Esc   | 📤 Send, ⏎ Enter, ✖ Close |
+| Shell    | 📷 Screen, ⏹ Ctrl-C, 📺 Live | ⏎ Enter, ^D EOF, ^Z Susp | 📤 Send, ⎋ Esc, ✖ Close   |
+
+**Toggle actions with state readback**: Mode (Shift+Tab), Think (Tab), YOLO (Ctrl+Y) capture the pane ~250ms after the key press, scrape the agent CLI's mode-line, and surface it in the answer toast (e.g., "auto-accept edits on"). Falls back to the static toast when no recognized mode-line is found.
+
+**Action types** users can define in TOML:
+
+- **`key`** — send a tmux key sequence (e.g. `"Tab"`, `"C-c"`, `'\x1b[Z'`). Set `literal=true` for raw byte sequences (TOML literal strings — single-quoted).
+- **`text`** — send literal text + Enter (e.g. `"/clear"`, prompt template). Useful for slash commands the agent itself interprets.
+- **`builtin`** — reserved; users cannot define new builtins. Existing builtins: `screen`, `ctrlc`, `live`, `send`, `close`.
+
+**Configuration**: place a TOML file at `~/.ccgram/toolbar.toml` (auto-detected) or set `CCGRAM_TOOLBAR_CONFIG=/path/to/toolbar.toml`. See `docs/examples/toolbar.toml` for a fully-annotated example. Schema:
+
+```toml
+[actions.clear]                    # define a custom action
+emoji = "🧹"
+text  = "Clear"
+type  = "text"
+payload = "/clear"
+
+[providers.claude]                 # override claude's default grid
+style = "emoji_text"
+buttons = [
+  ["screen", "ctrlc", "live"],
+  ["mode",   "think", "clear"],
+  ["send",   "enter", "close"],
+]
+```
+
+Providers absent from the TOML keep their built-in defaults. Malformed entries are logged and skipped — the loader never raises. Action names must be ≤24 chars (callback_data budget). Provider is resolved from `WindowState.provider_name`.
 
 ### Migration Notes
 

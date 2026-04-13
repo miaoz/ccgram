@@ -43,6 +43,21 @@ def _parse_int_env(name: str, default: int) -> int:
         raise ValueError(f"{name} must be a valid integer: {exc}") from exc
 
 
+def _resolve_toolbar_path() -> str:
+    """Resolve the toolbar TOML config path: env var → ~/.ccgram → empty.
+
+    Order:
+      1. ``$CCGRAM_TOOLBAR_CONFIG`` if set (used as-is, even if missing)
+      2. ``~/.ccgram/toolbar.toml`` if it exists
+      3. ``""`` (use built-in defaults)
+    """
+    env = os.getenv("CCGRAM_TOOLBAR_CONFIG", "").strip()
+    if env:
+        return env
+    fallback = ccgram_dir() / "toolbar.toml"
+    return str(fallback) if fallback.exists() else ""
+
+
 class Config:
     """Application configuration loaded from environment variables."""
 
@@ -154,30 +169,15 @@ class Config:
             "CCGRAM_WHISPER_LANGUAGE", "CCBOT_WHISPER_LANGUAGE"
         )
 
-        # LLM command generation (shell provider)
-        self.prompt_mode: str = os.getenv("CCGRAM_PROMPT_MODE", "wrap")
-        self.prompt_marker: str = os.getenv("CCGRAM_PROMPT_MARKER", "ccgram")
-        self.llm_provider: str = os.getenv("CCGRAM_LLM_PROVIDER", "")
-        self.llm_api_key: str = os.getenv("CCGRAM_LLM_API_KEY", "")
-        self.llm_base_url: str = os.getenv("CCGRAM_LLM_BASE_URL", "")
-        self.llm_model: str = os.getenv("CCGRAM_LLM_MODEL", "")
-        try:
-            self.llm_temperature: float = float(
-                os.getenv("CCGRAM_LLM_TEMPERATURE", "0.1")
-            )
-        except ValueError as e:
-            raise ValueError(
-                f"CCGRAM_LLM_TEMPERATURE must be a valid number: {e}"
-            ) from e
-
+        # LLM command generation (shell provider) and toolbar config path.
+        # toolbar_config_path resolution: env var → ~/.ccgram/toolbar.toml → "".
+        # Empty string means "use built-in defaults". The handler layer passes
+        # this path to ``toolbar_config.load_toolbar_config()`` once at startup.
+        self._init_shell_and_llm()
         self._init_messaging()
         self._init_live_view()
-
-        # Auto-close stale topics (minutes; 0 = disabled)
-        self.autoclose_done_minutes, self.autoclose_dead_minutes = (
-            int(os.getenv("AUTOCLOSE_DONE_MINUTES", "30")),
-            int(os.getenv("AUTOCLOSE_DEAD_MINUTES", "10")),
-        )
+        self._init_send()
+        self._init_lifecycle()
 
         logger.debug(
             "Config initialized: dir=%s, token=%s..., allowed_users=%d, "
@@ -206,6 +206,35 @@ class Config:
         )
         self.live_view_timeout: int = max(
             1, _parse_int_env("CCGRAM_LIVE_VIEW_TIMEOUT", 300)
+        )
+
+    def _init_shell_and_llm(self) -> None:
+        self.prompt_mode = os.getenv("CCGRAM_PROMPT_MODE", "wrap")
+        self.prompt_marker = os.getenv("CCGRAM_PROMPT_MARKER", "ccgram")
+        self.toolbar_config_path: str = _resolve_toolbar_path()
+        self.llm_provider: str = os.getenv("CCGRAM_LLM_PROVIDER", "")
+        self.llm_api_key: str = os.getenv("CCGRAM_LLM_API_KEY", "")
+        self.llm_base_url: str = os.getenv("CCGRAM_LLM_BASE_URL", "")
+        self.llm_model: str = os.getenv("CCGRAM_LLM_MODEL", "")
+        try:
+            self.llm_temperature: float = float(
+                os.getenv("CCGRAM_LLM_TEMPERATURE", "0.1")
+            )
+        except ValueError as e:
+            raise ValueError(
+                f"CCGRAM_LLM_TEMPERATURE must be a valid number: {e}"
+            ) from e
+
+    def _init_send(self) -> None:
+        self.send_search_depth: int = _parse_int_env("CCGRAM_SEND_SEARCH_DEPTH", 5)
+        self.send_max_results: int = _parse_int_env("CCGRAM_SEND_MAX_RESULTS", 50)
+
+    def _init_lifecycle(self) -> None:
+        self.autoclose_done_minutes: int = int(
+            os.getenv("AUTOCLOSE_DONE_MINUTES", "30")
+        )
+        self.autoclose_dead_minutes: int = int(
+            os.getenv("AUTOCLOSE_DEAD_MINUTES", "10")
         )
 
     def is_user_allowed(self, user_id: int) -> bool:

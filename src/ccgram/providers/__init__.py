@@ -10,9 +10,8 @@ require Config (doctor, status).
 import structlog
 import os
 
+from ccgram.expandable_quote import EXPANDABLE_QUOTE_END, EXPANDABLE_QUOTE_START
 from ccgram.providers.base import (
-    EXPANDABLE_QUOTE_END,
-    EXPANDABLE_QUOTE_START,
     AgentMessage,
     AgentProvider,
     DiscoveredCommand,
@@ -95,19 +94,25 @@ def _reset_provider() -> None:
     _registered = False
 
 
-def get_provider_for_window(window_id: str) -> AgentProvider:
+def get_provider_for_window(
+    window_id: str,
+    provider_name: str | None = None,
+) -> AgentProvider:
     """Return the provider for a specific window, falling back to config default.
 
-    Looks up provider_name from the window's WindowState. If empty or invalid,
-    falls back to the global config provider (get_provider()).
+    When *provider_name* is supplied the session-manager lookup is skipped,
+    breaking the providers / session circular-import chain on the hot path.
     """
     _ensure_registered()
 
-    from ccgram.session import session_manager
+    if provider_name is None:
+        from ccgram.session import session_manager
 
-    state = session_manager.window_states.get(window_id)
-    if state and state.provider_name and registry.is_valid(state.provider_name):
-        return registry.get(state.provider_name)
+        state = session_manager.window_states.get(window_id)
+        provider_name = state.provider_name if state else None
+
+    if provider_name and registry.is_valid(provider_name):
+        return registry.get(provider_name)
     return get_provider()
 
 

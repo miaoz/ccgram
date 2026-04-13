@@ -22,6 +22,7 @@ from typing import Any
 import aiofiles
 
 from .config import config
+from .state_persistence import unwired_save
 from .utils import atomic_write_json
 from .window_resolver import EMDASH_SESSION_PREFIX, is_foreign_window, is_window_id
 
@@ -83,7 +84,7 @@ class SessionMapSync:
     """
 
     def __post_init__(self) -> None:
-        self._schedule_save: Callable[[], None] = lambda: None
+        self._schedule_save: Callable[[], None] = unwired_save("SessionMapSync")
 
     # ------------------------------------------------------------------
     # Public: async read/sync methods
@@ -483,17 +484,17 @@ class SessionMapSync:
         if new_transcript and state.transcript_path != new_transcript:
             state.transcript_path = new_transcript
             changed = True
-        new_provider = info.get("provider_name", "")
+        new_provider = info.get("provider_name", "").lower()
         if new_provider and state.provider_name != new_provider:
             state.provider_name = new_provider
             changed = True
         if (
             new_wname
-            and not thread_router.window_display_names.get(window_id)
+            and thread_router.get_display_name(window_id) == window_id
             and not state.window_name
         ):
             state.window_name = new_wname
-            thread_router.window_display_names[window_id] = new_wname
+            thread_router.set_display_name(window_id, new_wname)
             changed = True
         return changed
 

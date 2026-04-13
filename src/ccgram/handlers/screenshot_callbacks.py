@@ -8,9 +8,9 @@ Handles inline keyboard callbacks for screenshot UI and status message buttons:
   - CB_STATUS_ESC: Send Escape key from status message
   - CB_STATUS_SCREENSHOT: Take a screenshot from status message
   - CB_STATUS_REMOTE: Toggle Remote Control activation
-  - CB_TOOLBAR_CTRLC: Send Ctrl-C from toolbar
-  - CB_TOOLBAR_DISMISS: Dismiss toolbar message
   - CB_KEYS_PREFIX: Send a quick key from screenshot keyboard
+
+Toolbar callbacks (CB_TOOLBAR_*) are in toolbar_callbacks.py.
 
 Key function: handle_screenshot_callback (uniform callback handler signature).
 """
@@ -48,10 +48,9 @@ from .callback_data import (
     CB_STATUS_RECALL,
     CB_STATUS_REMOTE,
     CB_STATUS_SCREENSHOT,
-    CB_TOOLBAR_CTRLC,
-    CB_TOOLBAR_DISMISS,
     NOTIFY_MODE_LABELS,
 )
+from ..topic_state_registry import topic_state
 from .callback_helpers import get_thread_id, user_owns_window
 from .callback_registry import register
 
@@ -59,6 +58,21 @@ logger = structlog.get_logger()
 
 _KEY_REFRESH_DELAY = 0.3  # seconds — debounce window for rapid key taps
 _pending_key_refreshes: dict[tuple[int, str], asyncio.Task[None]] = {}
+
+
+@topic_state.register("window")
+def _clear_key_refreshes(window_id: str) -> None:
+    """Cancel in-flight debounced key-refresh tasks for a closing window."""
+    stale = [
+        k
+        for k in _pending_key_refreshes
+        if k[1] == window_id or k[1].startswith(f"{window_id}:%")
+    ]
+    for k in stale:
+        task = _pending_key_refreshes.pop(k, None)
+        if task and not task.done():
+            task.cancel()
+
 
 # key_id -> (tmux_key, enter, literal)
 KEYS_SEND_MAP: dict[str, tuple[str, bool, bool]] = {
@@ -120,6 +134,17 @@ def build_screenshot_keyboard(
             ],
         ]
     )
+
+
+def _parse_target(target: str) -> tuple[str, str | None]:
+    """Parse window_id and optional pane_id from target string.
+
+    Target format: ``@0`` (window only) or ``@0:%3`` (window + pane).
+    """
+    if ":%" in target:
+        idx = target.index(":%")
+        return target[:idx], target[idx + 1 :]
+    return target, None
 
 
 async def _handle_live_start(
@@ -220,45 +245,6 @@ async def _handle_live_stop(
     await query.answer("\u23f9 Stopped")
 
 
-def build_toolbar_keyboard(window_id: str) -> InlineKeyboardMarkup:
-    """Build inline keyboard for /toolbar command."""
-    from .polling_strategies import is_rc_active
-
-    rc_label = "\U0001f4e1\u2713 RC" if is_rc_active(window_id) else "\U0001f4e1 RC"
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    rc_label,
-                    callback_data=f"{CB_STATUS_REMOTE}{window_id}"[:64],
-                ),
-                InlineKeyboardButton(
-                    "\U0001f4f7 Screenshot",
-                    callback_data=f"{CB_STATUS_SCREENSHOT}{window_id}"[:64],
-                ),
-                InlineKeyboardButton(
-                    "\U0001f4fa Live",
-                    callback_data=f"{CB_LIVE_START}{window_id}"[:64],
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    "\U0001f514 Notify",
-                    callback_data=f"{CB_STATUS_NOTIFY}{window_id}"[:64],
-                ),
-                InlineKeyboardButton(
-                    "\u23f9 Ctrl-C",
-                    callback_data=f"{CB_TOOLBAR_CTRLC}{window_id}"[:64],
-                ),
-                InlineKeyboardButton(
-                    "\u2716 Dismiss",
-                    callback_data=CB_TOOLBAR_DISMISS,
-                ),
-            ],
-        ]
-    )
-
-
 async def _handle_pane_screenshot(
     query: CallbackQuery, user_id: int, data: str, update: Update
 ) -> None:
@@ -320,27 +306,6 @@ async def _handle_remote_control(query: CallbackQuery, user_id: int, data: str) 
         await query.answer("\U0001f4e1 Activating\u2026")
 
 
-async def _handle_toolbar_ctrlc(query: CallbackQuery, user_id: int, data: str) -> None:
-    """Handle CB_TOOLBAR_CTRLC: send Ctrl-C to window."""
-    window_id = data[len(CB_TOOLBAR_CTRLC) :]
-    if not user_owns_window(user_id, window_id):
-        await query.answer("Not your session", show_alert=True)
-        return
-    w = await tmux_manager.find_window_by_id(window_id)
-    if w:
-        await tmux_manager.send_keys(w.window_id, "C-c", enter=False, literal=False)
-        await query.answer("^C Sent")
-    else:
-        await query.answer("Window not found", show_alert=True)
-
-
-async def _handle_toolbar_dismiss(query: CallbackQuery) -> None:
-    """Handle CB_TOOLBAR_DISMISS: delete the toolbar message."""
-    with contextlib.suppress(TelegramError):
-        await query.delete_message()
-    await query.answer()
-
-
 async def handle_screenshot_callback(
     query: CallbackQuery,
     user_id: int,
@@ -348,7 +313,7 @@ async def handle_screenshot_callback(
     update: Update,
     _context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    """Handle screenshot, status button, toolbar, and quick-key callbacks."""
+    """Handle screenshot, status button, and quick-key callbacks."""
     # Handlers that need (query, user_id, data, update)
     with_update = {
         CB_LIVE_START: _handle_live_start,
@@ -369,15 +334,11 @@ async def handle_screenshot_callback(
         CB_STATUS_ESC: _handle_status_esc,
         CB_STATUS_NOTIFY: _handle_notify_toggle,
         CB_STATUS_REMOTE: _handle_remote_control,
-        CB_TOOLBAR_CTRLC: _handle_toolbar_ctrlc,
     }
     for prefix, handler in without_update.items():
         if data.startswith(prefix):
             await handler(query, user_id, data)
             return
-
-    if data == CB_TOOLBAR_DISMISS:
-        await _handle_toolbar_dismiss(query)
 
 
 async def _handle_refresh(query: CallbackQuery, user_id: int, data: str) -> None:
@@ -545,17 +506,6 @@ async def _handle_notify_toggle(query: CallbackQuery, user_id: int, data: str) -
     await query.answer(label)
 
 
-def _parse_target(target: str) -> tuple[str, str | None]:
-    """Parse window_id and optional pane_id from target string.
-
-    Target format: ``@0`` (window only) or ``@0:%3`` (window + pane).
-    """
-    if ":%" in target:
-        idx = target.index(":%")
-        return target[:idx], target[idx + 1 :]
-    return target, None
-
-
 async def _handle_keys(
     query: CallbackQuery, user_id: int, data: str, update: Update
 ) -> None:
@@ -651,6 +601,146 @@ def _schedule_key_refresh(
     _pending_key_refreshes[refresh_key] = asyncio.create_task(_do_refresh())
 
 
+# ------------------------------------------------------------------
+# Command handlers (moved from bot.py)
+# ------------------------------------------------------------------
+
+
+async def screenshot_command(
+    update: Update, _context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Capture and send a terminal screenshot for the current topic."""
+    from ..config import config
+    from ..utils import handle_general_topic_message, is_general_topic
+    from .message_sender import safe_reply
+
+    user = update.effective_user
+    if not user or not config.is_user_allowed(user.id):
+        return
+    if not update.message:
+        return
+
+    thread_id = get_thread_id(update)
+    if thread_id is None:
+        if (
+            update.message
+            and update.effective_chat
+            and is_general_topic(update.message)
+        ):
+            await handle_general_topic_message(
+                update.get_bot(), update.message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(update.message, "\u274c Use this command inside a topic.")
+        return
+
+    window_id = thread_router.get_window_for_thread(user.id, thread_id)
+    if not window_id:
+        await safe_reply(
+            update.message, "\u274c This topic is not bound to any session."
+        )
+        return
+
+    w = await tmux_manager.find_window_by_id(window_id)
+    if not w:
+        await safe_reply(update.message, "\u274c Window no longer exists.")
+        return
+
+    pane_text = await tmux_manager.capture_pane(w.window_id, with_ansi=True)
+    if not pane_text:
+        await safe_reply(update.message, "\u274c Failed to capture terminal.")
+        return
+
+    import io
+
+    png_bytes = await text_to_image(pane_text, with_ansi=True)
+    keyboard = build_screenshot_keyboard(window_id)
+    chat_id = thread_router.resolve_chat_id(user.id, thread_id)
+    try:
+        await update.message.get_bot().send_document(
+            chat_id=chat_id,
+            document=io.BytesIO(png_bytes),
+            filename="screenshot.png",
+            reply_markup=keyboard,
+            message_thread_id=thread_id,
+        )
+    except TelegramError as e:
+        logger.error("Failed to send screenshot: %s", e)
+        await safe_reply(update.message, "\u274c Failed to send screenshot.")
+
+
+async def panes_command(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:  # noqa: C901
+    """List all panes in the current topic's window."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    from ..config import config
+    from ..utils import handle_general_topic_message, is_general_topic
+    from .callback_data import CB_PANE_SCREENSHOT
+    from .message_sender import safe_reply
+
+    user = update.effective_user
+    if not user or not config.is_user_allowed(user.id):
+        return
+    if not update.message:
+        return
+
+    thread_id = get_thread_id(update)
+    if thread_id is None:
+        if (
+            update.message
+            and update.effective_chat
+            and is_general_topic(update.message)
+        ):
+            await handle_general_topic_message(
+                update.get_bot(), update.message, update.effective_chat.id
+            )
+        else:
+            await safe_reply(update.message, "\u274c Use this command inside a topic.")
+        return
+
+    window_id = thread_router.get_window_for_thread(user.id, thread_id)
+    if not window_id:
+        await safe_reply(
+            update.message, "\u274c This topic is not bound to any session."
+        )
+        return
+
+    panes = await tmux_manager.list_panes(window_id)
+    if len(panes) <= 1:
+        await safe_reply(
+            update.message,
+            "\U0001f4d0 Single pane \u2014 no multi-pane layout detected.",
+        )
+        return
+
+    from .polling_strategies import has_pane_alert
+
+    lines = [f"\U0001f4d0 {len(panes)} panes in window\n"]
+    buttons: list[InlineKeyboardButton] = []
+    for pane in panes:
+        prefix = "\U0001f4cd" if pane.active else "  "
+        label = f"Pane {pane.index} ({pane.command})"
+        suffix_parts: list[str] = []
+        if pane.active:
+            suffix_parts.append("active")
+        if has_pane_alert(pane.pane_id):
+            prefix = "\u26a0\ufe0f"
+            suffix_parts.append("blocked")
+        elif not pane.active:
+            suffix_parts.append("running")
+        suffix = f" \u2014 {', '.join(suffix_parts)}" if suffix_parts else ""
+        lines.append(f"{prefix} {label}{suffix}")
+        buttons.append(
+            InlineKeyboardButton(
+                f"\U0001f4f7 {pane.index}",
+                callback_data=f"{CB_PANE_SCREENSHOT}{window_id}:{pane.pane_id}"[:64],
+            )
+        )
+
+    keyboard = InlineKeyboardMarkup([buttons]) if buttons else None
+    await safe_reply(update.message, "\n".join(lines), reply_markup=keyboard)
+
+
 # --- Registry dispatch entry point ---
 
 
@@ -665,8 +755,6 @@ def _schedule_key_refresh(
     CB_KEYS_PREFIX,
     CB_PANE_SCREENSHOT,
     CB_STATUS_REMOTE,
-    CB_TOOLBAR_CTRLC,
-    CB_TOOLBAR_DISMISS,
 )
 async def _dispatch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
