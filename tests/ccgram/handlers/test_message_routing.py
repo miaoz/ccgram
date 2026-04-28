@@ -40,7 +40,8 @@ def mock_deps():
         patch("ccgram.handlers.message_routing.session_query") as sq,
         patch("ccgram.handlers.message_routing.window_query") as wq,
         patch(
-            "ccgram.handlers.message_routing.enqueue_content_message", new=AsyncMock()
+            "ccgram.handlers.message_routing.enqueue_content_message",
+            new_callable=AsyncMock,
         ) as eq,
         patch("ccgram.handlers.message_routing.get_message_queue") as gmq,
         patch(
@@ -50,7 +51,8 @@ def mock_deps():
         patch("ccgram.handlers.message_routing.set_interactive_mode") as sim,
         patch("ccgram.handlers.message_routing.clear_interactive_mode") as cim,
         patch(
-            "ccgram.handlers.message_routing.clear_interactive_msg", new=AsyncMock()
+            "ccgram.handlers.message_routing.clear_interactive_msg",
+            new_callable=AsyncMock,
         ) as cmsg,
         patch(
             "ccgram.handlers.message_routing.get_interactive_msg_id", return_value=None

@@ -25,6 +25,12 @@ def _clear_rate_limit_state():
 
 
 class TestRateLimitSend:
+    @pytest.fixture(autouse=True)
+    def _real_send_interval(self, monkeypatch):
+        # Conftest zeroes MESSAGE_SEND_INTERVAL for speed; restore the real
+        # value here so wait-time assertions hold.
+        monkeypatch.setattr("ccgram.handlers.message_sender.MESSAGE_SEND_INTERVAL", 0.5)
+
     async def test_first_call_no_wait(self) -> None:
         with patch(
             "ccgram.handlers.message_sender.asyncio.sleep",
@@ -70,6 +76,13 @@ class TestRateLimitSend:
 
 
 class TestSendWithFallback:
+    @pytest.fixture(autouse=True)
+    def _instant_retry_sleep(self, monkeypatch):
+        monkeypatch.setattr(
+            "ccgram.handlers.message_sender.asyncio.sleep",
+            AsyncMock(),
+        )
+
     async def test_entity_success(self) -> None:
         bot = AsyncMock()
         sent = AsyncMock(spec=Message)
@@ -202,6 +215,35 @@ class TestEditWithFallback:
         ]
         with pytest.raises(RetryAfter):
             await edit_with_fallback(bot, 123, 1, "hello")
+
+
+class TestEmptyAndOverlongGuards:
+    async def test_empty_text_skips_send(self) -> None:
+        bot = AsyncMock()
+        result = await _send_with_fallback(bot, 123, "")
+        assert result is None
+        bot.send_message.assert_not_called()
+
+    async def test_whitespace_only_text_skips_send(self) -> None:
+        bot = AsyncMock()
+        result = await _send_with_fallback(bot, 123, "   \n\t  ")
+        assert result is None
+        bot.send_message.assert_not_called()
+
+    async def test_overlong_text_truncates_under_limit(self) -> None:
+        from ccgram.telegram_sender import TELEGRAM_MAX_MESSAGE_LENGTH
+
+        bot = AsyncMock()
+        sent = AsyncMock(spec=Message)
+        bot.send_message.return_value = sent
+
+        long_text = "x" * 8000
+        await _send_with_fallback(bot, 123, long_text)
+
+        call_kwargs = bot.send_message.call_args.kwargs
+        sent_text = call_kwargs["text"]
+        assert len(sent_text) <= TELEGRAM_MAX_MESSAGE_LENGTH
+        assert sent_text.endswith("…")
 
 
 class TestFallbackNoSentinelLeak:

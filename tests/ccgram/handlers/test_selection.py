@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from telegram import InlineKeyboardMarkup
 
 from ccgram.handlers.callback_data import (
@@ -406,6 +407,12 @@ class TestTryInstallMessagingSkill:
 
 
 class TestAcceptYoloConfirmation:
+    @pytest.fixture(autouse=True)
+    def _instant_yolo_sleep(self, monkeypatch):
+        from ccgram.handlers import directory_callbacks
+
+        monkeypatch.setattr(directory_callbacks.asyncio, "sleep", AsyncMock())
+
     @patch("ccgram.handlers.directory_callbacks.tmux_manager")
     async def test_detects_prompt_and_sends_down_then_enter(
         self, mock_tmux: MagicMock

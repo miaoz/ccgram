@@ -30,7 +30,7 @@ from ..thread_router import thread_router
 from ..topic_state_registry import topic_state
 from ..utils import tmux_session_name
 from .callback_registry import register
-from .message_sender import rate_limit_send_message
+from .message_sender import REACT_INBOX, rate_limit_send_message, react
 
 if TYPE_CHECKING:
     from ..mailbox import Message
@@ -203,13 +203,17 @@ async def notify_messages_delivered(
             lines.append(f"  {from_wid} ({from_name}) [{msg.type}]{subj_part}")
         text = "\n".join(lines)
 
-    await rate_limit_send_message(
+    sent = await rate_limit_send_message(
         bot,
         chat_id,
         text,
         message_thread_id=thread_id,
         disable_notification=True,
     )
+    # \ud83d\udcec ack so the inter-agent delivery is visible in the topic without
+    # competing with the agent's own status updates.
+    if sent is not None:
+        await react(bot, chat_id, sent.message_id, REACT_INBOX)
 
 
 async def notify_reply_received(
@@ -301,9 +305,13 @@ async def notify_loop_detected(
     wid_a = _extract_window_id(window_a)
     wid_b = _extract_window_id(window_b)
 
-    # Hash the pair to fit within 64-byte callback_data limit
+    # Hash the pair to fit within 64-byte callback_data limit. Non-cryptographic
+    # use (dedup key for an in-memory dict), so usedforsecurity=False is the
+    # right signal — sha256 also avoids the bandit/MD5 noise.
     pair_full = f"{window_a}|{window_b}"
-    pair_hash = hashlib.md5(pair_full.encode()).hexdigest()[:12]  # noqa: S324
+    pair_hash = hashlib.sha256(pair_full.encode(), usedforsecurity=False).hexdigest()[
+        :16
+    ]
     if len(_loop_alert_pairs) >= _MAX_LOOP_ALERT_PAIRS:
         oldest_key = next(iter(_loop_alert_pairs))
         del _loop_alert_pairs[oldest_key]
